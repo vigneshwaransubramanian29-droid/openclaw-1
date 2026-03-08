@@ -1,0 +1,75 @@
+default_provider: openclaw
+provider_order:
+  - openclaw
+  - brave
+  - bing
+  - serpapi
+
+providers:
+  openclaw:
+    enabled: true
+  brave:
+    enabled: false
+    api_key: ${BRAVE_SEARCH_API_KEY}
+    base_url: https://api.search.brave.com/res/v1/web/search
+  bing:
+    enabled: false
+    api_key: ${BING_SEARCH_API_KEY}
+    base_url: https://api.bing.microsoft.com/v7.0/search
+  serpapi:
+    enabled: false
+    api_key: ${SERPAPI_API_KEY}
+    base_url: https://serpapi.com/search.json
+
+cache:
+  ttl_hours: 24
+
+rate_limits:
+  openclaw:
+    requests_per_minute: 120
+  brave:
+    requests_per_minute: 45
+  bing:
+    requests_per_minute: 45
+  serpapi:
+    requests_per_minute: 30
+
+retries:
+  max_attempts: 2
+
+query_optimization:
+  synonyms:
+    llm:
+      - large language model
+      - foundation model
+    cli:
+      - command line
+      - terminal
+    auth:
+      - authentication
+      - authorization
+    sdk:
+      - software development kit
+      - api library
+  operator_templates:
+    documentation:
+      - site:docs.*
+      - site:github.com
+    standards:
+      - site:ietf.org
+      - site:w3.org
+  fallback_suffixes:
+    - official docs
+    - release notes
+    - changelog
+
+scoring:
+  authority_domains:
+    - docs.
+    - github.com
+    - ietf.org
+    - w3.org
+    - .gov
+    - .edu
+  title_similarity_threshold: 0.9
+  min_strong_results: 3

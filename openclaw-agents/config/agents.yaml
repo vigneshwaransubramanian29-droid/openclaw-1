@@ -1,0 +1,91 @@
+compat_mode: true
+
+workspace_store:
+  max_entries: 4000
+
+orchestrator:
+  max_context_tokens: 2500
+  small_task_token_threshold: 700
+  retry_until_success: true
+  max_pipeline_retries: 3
+  max_module_retries: 4
+  code_fanout:
+    enabled: true
+    max_parallel: 3
+    verify_each_module: true
+  default_pipeline:
+    - planner
+    - search
+    - code
+    - test
+    - docs
+
+defaults:
+  max_context_tokens: 1200
+
+agent_budgets:
+  planner:
+    max_context_tokens: 900
+    max_output_tokens: 500
+  code:
+    max_context_tokens: 1800
+    max_output_tokens: 900
+  test:
+    max_context_tokens: 1200
+    max_output_tokens: 700
+  docs:
+    max_context_tokens: 1100
+    max_output_tokens: 700
+  debug:
+    max_context_tokens: 1200
+    max_output_tokens: 700
+  search:
+    max_context_tokens: 600
+    max_output_tokens: 350
+
+agent_policies:
+  orchestrator:
+    allowed_tools:
+      - read_workspace
+      - dispatch_agents
+  planner:
+    allowed_tools:
+      - read_workspace
+  code:
+    allowed_tools:
+      - read_workspace
+      - write_workspace
+  test:
+    allowed_tools:
+      - read_workspace
+      - run_tests
+  docs:
+    allowed_tools:
+      - read_workspace
+  debug:
+    allowed_tools:
+      - read_workspace
+  search:
+    allowed_tools:
+      - web_search
+      - read_workspace
+
+definitions:
+  planner:
+    name: PlannerAgent
+    purpose: Decompose objectives into an executable plan with explicit risks.
+  code:
+    name: CodeAgent
+    purpose: Produce patch-ready implementation artifacts.
+  test:
+    name: TestAgent
+    purpose: Generate test strategy and runnable validation commands.
+  docs:
+    name: DocsAgent
+    purpose: Produce concise operational and developer documentation.
+  debug:
+    name: DebugAgent
+    purpose: Triage failures and propose deterministic debugging actions.
+  search:
+    name: SearchAgent
+    purpose: Run minimal-token web research with citations.

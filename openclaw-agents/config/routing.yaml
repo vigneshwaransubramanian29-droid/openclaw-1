@@ -1,0 +1,82 @@
+thresholds:
+  high: 0.75
+  medium: 0.5
+
+keywords:
+  latest:
+    - latest
+    - current
+    - now
+    - pricing
+    - version
+    - release
+    - breaking change
+  build:
+    - build
+    - implement
+    - create app
+    - refactor
+    - architecture
+  docs:
+    - docs
+    - readme
+    - documentation
+    - write guide
+  debug:
+    - error
+    - stacktrace
+    - failing
+    - exception
+    - crash
+  test:
+    - test
+    - unit test
+    - regression
+    - validate
+
+rules:
+  - id: latest-first
+    when_any:
+      - latest
+      - current
+      - pricing
+      - version
+      - release
+      - breaking change
+    prepend_agents:
+      - search
+    intent: research
+
+  - id: build-pipeline
+    when_any:
+      - build
+      - implement
+      - refactor
+      - create app
+    select_agents:
+      - planner
+      - code
+      - test
+      - docs
+    intent: build
+
+  - id: docs-route
+    when_any:
+      - docs
+      - readme
+      - documentation
+    select_agents:
+      - docs
+    intent: docs
+
+  - id: debug-route
+    when_any:
+      - error
+      - stacktrace
+      - failing
+      - exception
+      - crash
+    select_agents:
+      - debug
+      - test
+    intent: debug
