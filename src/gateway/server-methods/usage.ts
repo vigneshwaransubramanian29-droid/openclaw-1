@@ -347,6 +347,30 @@ export const __test = {
 
 export type { SessionUsageEntry, SessionsUsageAggregates, SessionsUsageResult };
 
+export type TopTokenRequestEntry = {
+  key: string;
+  sessionId: string;
+  agentId?: string;
+  label?: string;
+  channel?: string;
+  provider?: string;
+  model?: string;
+  timestamp: number;
+  tokens: number;
+  cost?: number;
+  role: "assistant";
+  content: string;
+};
+
+export type SessionsTopTokenRequestsResult = {
+  updatedAt: number;
+  startDate: string;
+  endDate: string;
+  totalScannedSessions: number;
+  totalCandidateMessages: number;
+  requests: TopTokenRequestEntry[];
+};
+
 export const usageHandlers: GatewayRequestHandlers = {
   "usage.status": async ({ respond }) => {
     const summary = await loadProviderUsageSummary();
@@ -865,5 +889,129 @@ export const usageHandlers: GatewayRequestHandlers = {
     });
 
     respond(true, { logs: logs ?? [] }, undefined);
+  },
+  "sessions.usage.topRequests": async ({ respond, params }) => {
+    const config = loadConfig();
+    const { startMs, endMs } = parseDateRange({
+      startDate: params?.startDate,
+      endDate: params?.endDate,
+      days: params?.days,
+      mode: params?.mode,
+      utcOffset: params?.utcOffset,
+    });
+    const limitRaw = typeof params?.limit === "number" ? Math.floor(params.limit) : 50;
+    const limit = Math.min(Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 50), 500);
+    const sessionLimitRaw =
+      typeof params?.sessionLimit === "number" ? Math.floor(params.sessionLimit) : 300;
+    const sessionLimit = Math.min(Math.max(1, Number.isFinite(sessionLimitRaw) ? sessionLimitRaw : 300), 2000);
+    const providerFilter =
+      typeof params?.provider === "string" && params.provider.trim()
+        ? params.provider.trim().toLowerCase()
+        : null;
+    const modelFilter =
+      typeof params?.model === "string" && params.model.trim()
+        ? params.model.trim().toLowerCase()
+        : null;
+
+    const { store } = loadCombinedSessionStoreForGateway(config);
+    const storeBySessionId = buildStoreBySessionId(store);
+    const discoveredSessions = await discoverAllSessionsForUsage({ config, startMs, endMs });
+
+    const mergedEntries = discoveredSessions.slice(0, sessionLimit).map((discovered) => {
+      const storeMatch = storeBySessionId.get(discovered.sessionId);
+      const key = storeMatch ? storeMatch.key : `agent:${discovered.agentId}:${discovered.sessionId}`;
+      const storeEntry = storeMatch?.entry;
+      return {
+        key,
+        sessionId: discovered.sessionId,
+        sessionFile: discovered.sessionFile,
+        updatedAt: storeEntry?.updatedAt ?? discovered.mtime,
+        label: storeEntry?.label,
+        storeEntry,
+      };
+    });
+
+    const requests: TopTokenRequestEntry[] = [];
+    let totalCandidateMessages = 0;
+    for (const merged of mergedEntries) {
+      const parsed = parseAgentSessionKey(merged.key);
+      const agentId = parsed?.agentId;
+      const channel = merged.storeEntry?.channel ?? merged.storeEntry?.origin?.provider;
+      const resolvedProvider =
+        merged.storeEntry?.providerOverride ??
+        merged.storeEntry?.modelProvider ??
+        merged.storeEntry?.origin?.provider;
+      const resolvedModel = merged.storeEntry?.modelOverride ?? merged.storeEntry?.model;
+      if (providerFilter && !String(resolvedProvider ?? "").toLowerCase().includes(providerFilter)) {
+        continue;
+      }
+      if (modelFilter && !String(resolvedModel ?? "").toLowerCase().includes(modelFilter)) {
+        continue;
+      }
+
+      const { loadSessionLogs } = await import("../../infra/session-cost-usage.js");
+      const logs = await loadSessionLogs({
+        sessionId: merged.sessionId,
+        sessionEntry: merged.storeEntry,
+        sessionFile: merged.sessionFile,
+        config,
+        agentId,
+        limit: 5000,
+      });
+      if (!logs || logs.length === 0) {
+        continue;
+      }
+
+      for (const log of logs) {
+        if (log.role !== "assistant") {
+          continue;
+        }
+        const ts = typeof log.timestamp === "number" ? log.timestamp : 0;
+        if (!Number.isFinite(ts) || ts < startMs || ts > endMs) {
+          continue;
+        }
+        const tokens = typeof log.tokens === "number" ? log.tokens : 0;
+        if (!Number.isFinite(tokens) || tokens <= 0) {
+          continue;
+        }
+        totalCandidateMessages += 1;
+        requests.push({
+          key: merged.key,
+          sessionId: merged.sessionId,
+          agentId,
+          label: merged.label,
+          channel,
+          provider: resolvedProvider,
+          model: resolvedModel,
+          timestamp: ts,
+          tokens,
+          cost: typeof log.cost === "number" ? log.cost : undefined,
+          role: "assistant",
+          content: log.content,
+        });
+      }
+    }
+
+    requests.sort((a, b) => {
+      if (b.tokens !== a.tokens) {
+        return b.tokens - a.tokens;
+      }
+      return b.timestamp - a.timestamp;
+    });
+
+    const formatDateStr = (ms: number) => {
+      const d = new Date(ms);
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+    };
+
+    const result: SessionsTopTokenRequestsResult = {
+      updatedAt: Date.now(),
+      startDate: formatDateStr(startMs),
+      endDate: formatDateStr(endMs),
+      totalScannedSessions: mergedEntries.length,
+      totalCandidateMessages,
+      requests: requests.slice(0, limit),
+    };
+    respond(true, result, undefined);
   },
 };

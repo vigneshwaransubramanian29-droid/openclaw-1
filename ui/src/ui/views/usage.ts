@@ -435,6 +435,7 @@ export function renderUsage(props: UsageProps) {
     `;
   };
   const exportStamp = formatIsoDate(new Date());
+  const topRequests = (props.topRequests?.requests ?? []).slice(0, 25);
 
   return html`
     <style>${usageStylesString}</style>
@@ -753,6 +754,42 @@ export function renderUsage(props: UsageProps) {
       displaySessionCount,
       totalSessions,
     )}
+
+    <section class="card" style="margin-top: 12px;">
+      <div class="card-title">Top Token Requests (Codex)</div>
+      ${
+        topRequests.length === 0
+          ? html`<div class="usage-query-hint">No token-heavy assistant requests found for this range.</div>`
+          : html`
+              <div style="overflow:auto; margin-top: 8px;">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th style="text-align:left;">Tokens</th>
+                      <th style="text-align:left;">Model</th>
+                      <th style="text-align:left;">When</th>
+                      <th style="text-align:left;">Session</th>
+                      <th style="text-align:left;">Snippet</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${topRequests.map(
+                      (entry) => html`
+                        <tr>
+                          <td>${formatTokens(entry.tokens)}</td>
+                          <td>${entry.model ?? "unknown"}</td>
+                          <td>${new Date(entry.timestamp).toLocaleString()}</td>
+                          <td>${entry.label ?? entry.key}</td>
+                          <td>${entry.content.slice(0, 180)}</td>
+                        </tr>
+                      `,
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            `
+      }
+    </section>
 
     ${renderUsageMosaic(aggregateSessions, props.timeZone, props.selectedHours, props.onSelectHour)}
 

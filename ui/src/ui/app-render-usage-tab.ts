@@ -41,6 +41,7 @@ export function renderUsageTab(state: AppViewState) {
     timeSeriesCursorEnd: state.usageTimeSeriesCursorEnd,
     sessionLogs: state.usageSessionLogs,
     sessionLogsLoading: state.usageSessionLogsLoading,
+    topRequests: state.usageTopRequests,
     sessionLogsExpanded: state.usageSessionLogsExpanded,
     logFilterRoles: state.usageLogFilterRoles,
     logFilterTools: state.usageLogFilterTools,

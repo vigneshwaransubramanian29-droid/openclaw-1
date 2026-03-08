@@ -245,6 +245,33 @@ export async function resolveGatewayProgramArguments(params: {
   });
 }
 
+export async function resolveGatewaySupervisorProgramArguments(params: {
+  port: number;
+  activePort?: number;
+  passivePort?: number;
+  dev?: boolean;
+  runtime?: GatewayRuntimePreference;
+  nodePath?: string;
+}): Promise<GatewayProgramArgs> {
+  const gatewayArgs = [
+    "gateway",
+    "supervisor",
+    "run",
+    "--port",
+    String(params.port),
+    "--active-port",
+    String(params.activePort ?? params.port + 1),
+    "--passive-port",
+    String(params.passivePort ?? params.port + 2),
+  ];
+  return resolveCliProgramArguments({
+    args: gatewayArgs,
+    dev: params.dev,
+    runtime: params.runtime,
+    nodePath: params.nodePath,
+  });
+}
+
 export async function resolveNodeProgramArguments(params: {
   host: string;
   port: number;

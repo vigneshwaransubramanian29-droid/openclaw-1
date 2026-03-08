@@ -10,6 +10,7 @@ const BASE_METHODS = [
   "status",
   "usage.status",
   "usage.cost",
+  "sessions.usage.topRequests",
   "tts.status",
   "tts.providers",
   "tts.enable",

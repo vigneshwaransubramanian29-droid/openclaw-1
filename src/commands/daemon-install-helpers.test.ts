@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   resolvePreferredNodePath: vi.fn(),
-  resolveGatewayProgramArguments: vi.fn(),
+  resolveGatewaySupervisorProgramArguments: vi.fn(),
   resolveSystemNodeInfo: vi.fn(),
   renderSystemNodeWarning: vi.fn(),
   buildServiceEnvironment: vi.fn(),
@@ -15,7 +15,7 @@ vi.mock("../daemon/runtime-paths.js", () => ({
 }));
 
 vi.mock("../daemon/program-args.js", () => ({
-  resolveGatewayProgramArguments: mocks.resolveGatewayProgramArguments,
+  resolveGatewaySupervisorProgramArguments: mocks.resolveGatewaySupervisorProgramArguments,
 }));
 
 vi.mock("../daemon/service-env.js", () => ({
@@ -59,7 +59,7 @@ function mockNodeGatewayPlanFixture(
     serviceEnvironment = { OPENCLAW_PORT: "3000" },
   } = params;
   mocks.resolvePreferredNodePath.mockResolvedValue("/opt/node");
-  mocks.resolveGatewayProgramArguments.mockResolvedValue({
+  mocks.resolveGatewaySupervisorProgramArguments.mockResolvedValue({
     programArguments: ["node", "gateway"],
     workingDirectory,
   });

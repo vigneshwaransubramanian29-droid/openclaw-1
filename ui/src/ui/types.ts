@@ -432,9 +432,11 @@ export type SessionsPatchResult = SessionsPatchResultBase<{
 export type {
   CostUsageDailyEntry,
   CostUsageSummary,
+  SessionsTopTokenRequestsResult,
   SessionsUsageEntry,
   SessionsUsageResult,
   SessionsUsageTotals,
+  TopTokenRequestEntry,
   SessionUsageTimePoint,
   SessionUsageTimeSeries,
 } from "./usage-types.ts";

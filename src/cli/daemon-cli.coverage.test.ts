@@ -7,6 +7,9 @@ const callGateway = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
 const resolveGatewayProgramArguments = vi.fn(async (_opts?: unknown) => ({
   programArguments: ["/bin/node", "cli", "gateway", "--port", "18789"],
 }));
+const resolveGatewaySupervisorProgramArguments = vi.fn(async (_opts?: unknown) => ({
+  programArguments: ["/bin/node", "cli", "gateway", "supervisor", "run", "--port", "18789"],
+}));
 const serviceInstall = vi.fn().mockResolvedValue(undefined);
 const serviceUninstall = vi.fn().mockResolvedValue(undefined);
 const serviceStop = vi.fn().mockResolvedValue(undefined);
@@ -46,6 +49,8 @@ vi.mock("../gateway/probe-auth.js", () => ({
 
 vi.mock("../daemon/program-args.js", () => ({
   resolveGatewayProgramArguments: (opts: unknown) => resolveGatewayProgramArguments(opts),
+  resolveGatewaySupervisorProgramArguments: (opts: unknown) =>
+    resolveGatewaySupervisorProgramArguments(opts),
 }));
 
 vi.mock("../daemon/service.js", () => ({

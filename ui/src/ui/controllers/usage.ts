@@ -1,5 +1,10 @@
 import type { GatewayBrowserClient } from "../gateway.ts";
-import type { SessionsUsageResult, CostUsageSummary, SessionUsageTimeSeries } from "../types.ts";
+import type {
+  SessionsUsageResult,
+  CostUsageSummary,
+  SessionUsageTimeSeries,
+  SessionsTopTokenRequestsResult,
+} from "../types.ts";
 import type { SessionLogEntry } from "../views/usage.ts";
 
 export type UsageState = {
@@ -19,6 +24,7 @@ export type UsageState = {
   usageTimeSeriesCursorEnd: number | null;
   usageSessionLogs: SessionLogEntry[] | null;
   usageSessionLogsLoading: boolean;
+  usageTopRequests: SessionsTopTokenRequestsResult | null;
   usageTimeZone: "local" | "utc";
   settings?: { gatewayUrl?: string };
 };
@@ -220,29 +226,41 @@ export async function loadUsage(
           endDate,
           ...dateInterpretation,
         }),
+        client.request("sessions.usage.topRequests", {
+          startDate,
+          endDate,
+          ...dateInterpretation,
+          limit: 100,
+          sessionLimit: 500,
+          model: "codex",
+        }),
       ]);
     };
 
-    const applyUsageResults = (sessionsRes: unknown, costRes: unknown) => {
+    const applyUsageResults = (sessionsRes: unknown, costRes: unknown, topRequestsRes: unknown) => {
       if (sessionsRes) {
         state.usageResult = sessionsRes as SessionsUsageResult;
       }
       if (costRes) {
         state.usageCostSummary = costRes as CostUsageSummary;
       }
+      if (topRequestsRes) {
+        state.usageTopRequests = topRequestsRes as SessionsTopTokenRequestsResult;
+      }
     };
 
     const includeDateInterpretation = shouldSendLegacyDateInterpretation(state);
     try {
-      const [sessionsRes, costRes] = await runUsageRequests(includeDateInterpretation);
-      applyUsageResults(sessionsRes, costRes);
+      const [sessionsRes, costRes, topRequestsRes] =
+        await runUsageRequests(includeDateInterpretation);
+      applyUsageResults(sessionsRes, costRes, topRequestsRes);
     } catch (err) {
       if (includeDateInterpretation && isLegacyDateInterpretationUnsupportedError(err)) {
         // Older gateways reject `mode`/`utcOffset` in `sessions.usage`.
         // Remember this per gateway and retry once without those fields.
         rememberLegacyDateInterpretation(state);
-        const [sessionsRes, costRes] = await runUsageRequests(false);
-        applyUsageResults(sessionsRes, costRes);
+        const [sessionsRes, costRes, topRequestsRes] = await runUsageRequests(false);
+        applyUsageResults(sessionsRes, costRes, topRequestsRes);
       } else {
         throw err;
       }

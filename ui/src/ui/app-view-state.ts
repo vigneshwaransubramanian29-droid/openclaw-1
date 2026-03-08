@@ -23,6 +23,7 @@ import type {
   NostrProfile,
   PresenceEntry,
   SessionsUsageResult,
+  SessionsTopTokenRequestsResult,
   CostUsageSummary,
   SessionUsageTimeSeries,
   SessionsListResult,
@@ -174,6 +175,7 @@ export type AppViewState = {
   usageTimeSeriesCursorEnd: number | null;
   usageSessionLogs: SessionLogEntry[] | null;
   usageSessionLogsLoading: boolean;
+  usageTopRequests: SessionsTopTokenRequestsResult | null;
   usageSessionLogsExpanded: boolean;
   usageQuery: string;
   usageQueryDraft: string;

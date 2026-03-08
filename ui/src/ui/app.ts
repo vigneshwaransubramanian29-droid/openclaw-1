@@ -276,6 +276,7 @@ export class OpenClawApp extends LitElement {
   @state() usageTimeSeriesCursorEnd: number | null = null;
   @state() usageSessionLogs: import("./views/usage.js").SessionLogEntry[] | null = null;
   @state() usageSessionLogsLoading = false;
+  @state() usageTopRequests: import("./types.js").SessionsTopTokenRequestsResult | null = null;
   @state() usageSessionLogsExpanded = false;
   // Applied query (used to filter the already-loaded sessions list client-side).
   @state() usageQuery = "";

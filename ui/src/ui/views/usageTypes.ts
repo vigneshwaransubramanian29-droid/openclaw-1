@@ -1,5 +1,6 @@
 import type {
   CostUsageDailyEntry,
+  SessionsTopTokenRequestsResult,
   SessionsUsageEntry,
   SessionsUsageResult,
   SessionsUsageTotals,
@@ -46,6 +47,7 @@ export type UsageProps = {
   timeSeriesCursorEnd: number | null; // End of selected range (null = no selection)
   sessionLogs: SessionLogEntry[] | null;
   sessionLogsLoading: boolean;
+  topRequests: SessionsTopTokenRequestsResult | null;
   sessionLogsExpanded: boolean;
   logFilterRoles: SessionLogRole[];
   logFilterTools: string[];

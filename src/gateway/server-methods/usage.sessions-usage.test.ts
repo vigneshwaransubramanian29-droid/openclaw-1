@@ -109,6 +109,15 @@ async function runSessionsUsageLogs(params: Record<string, unknown>) {
   return respond;
 }
 
+async function runSessionsTopRequests(params: Record<string, unknown>) {
+  const respond = vi.fn();
+  await usageHandlers["sessions.usage.topRequests"]({
+    respond,
+    params,
+  } as unknown as Parameters<(typeof usageHandlers)["sessions.usage.topRequests"]>[0]);
+  return respond;
+}
+
 const BASE_USAGE_RANGE = {
   startDate: "2026-02-01",
   endDate: "2026-02-02",
@@ -241,5 +250,20 @@ describe("sessions.usage", () => {
         message: expect.stringContaining("Invalid session key"),
       }),
     );
+  });
+
+  it("loads top requests across discovered sessions", async () => {
+    const respond = await runSessionsTopRequests({
+      startDate: "2026-02-01",
+      endDate: "2026-02-02",
+      limit: 5,
+      sessionLimit: 5,
+    });
+
+    expect(respond).toHaveBeenCalledTimes(1);
+    expect(respond.mock.calls[0]?.[0]).toBe(true);
+    const payload = respond.mock.calls[0]?.[1] as { requests: unknown[] };
+    expect(Array.isArray(payload.requests)).toBe(true);
+    expect(vi.mocked(loadSessionLogs)).toHaveBeenCalled();
   });
 });

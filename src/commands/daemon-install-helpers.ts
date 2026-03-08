@@ -2,7 +2,7 @@ import { formatCliCommand } from "../cli/command-format.js";
 import { collectConfigServiceEnvVars } from "../config/env-vars.js";
 import type { OpenClawConfig } from "../config/types.js";
 import { resolveGatewayLaunchAgentLabel } from "../daemon/constants.js";
-import { resolveGatewayProgramArguments } from "../daemon/program-args.js";
+import { resolveGatewaySupervisorProgramArguments } from "../daemon/program-args.js";
 import { buildServiceEnvironment } from "../daemon/service-env.js";
 import {
   emitDaemonInstallRuntimeWarning,
@@ -35,7 +35,7 @@ export async function buildGatewayInstallPlan(params: {
     devMode: params.devMode,
     nodePath: params.nodePath,
   });
-  const { programArguments, workingDirectory } = await resolveGatewayProgramArguments({
+  const { programArguments, workingDirectory } = await resolveGatewaySupervisorProgramArguments({
     port: params.port,
     dev: devMode,
     runtime: params.runtime,

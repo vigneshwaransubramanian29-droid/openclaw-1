@@ -21,6 +21,7 @@ function createState(request: RequestFn, overrides: Partial<UsageState> = {}): U
     usageTimeSeriesCursorEnd: null,
     usageSessionLogs: null,
     usageSessionLogsLoading: false,
+    usageTopRequests: null,
     usageTimeZone: "local",
     ...overrides,
   };
@@ -40,6 +41,15 @@ function expectSpecificTimezoneCalls(request: ReturnType<typeof vi.fn>, startCal
     endDate: "2026-02-16",
     mode: "specific",
     utcOffset: "UTC+5:30",
+  });
+  expect(request).toHaveBeenNthCalledWith(startCall + 2, "sessions.usage.topRequests", {
+    startDate: "2026-02-16",
+    endDate: "2026-02-16",
+    mode: "specific",
+    utcOffset: "UTC+5:30",
+    limit: 100,
+    sessionLimit: 500,
+    model: "codex",
   });
 }
 
@@ -86,6 +96,14 @@ describe("usage controller date interpretation params", () => {
       endDate: "2026-02-16",
       mode: "utc",
     });
+    expect(request).toHaveBeenNthCalledWith(3, "sessions.usage.topRequests", {
+      startDate: "2026-02-16",
+      endDate: "2026-02-16",
+      mode: "utc",
+      limit: 100,
+      sessionLimit: 500,
+      model: "codex",
+    });
   });
 
   it("captures useful error strings in loadUsage", async () => {
@@ -129,29 +147,43 @@ describe("usage controller date interpretation params", () => {
     await loadUsage(state);
 
     expectSpecificTimezoneCalls(request, 1);
-    expect(request).toHaveBeenNthCalledWith(3, "sessions.usage", {
+    expect(request).toHaveBeenNthCalledWith(4, "sessions.usage", {
       startDate: "2026-02-16",
       endDate: "2026-02-16",
       limit: 1000,
       includeContextWeight: true,
     });
-    expect(request).toHaveBeenNthCalledWith(4, "usage.cost", {
+    expect(request).toHaveBeenNthCalledWith(5, "usage.cost", {
       startDate: "2026-02-16",
       endDate: "2026-02-16",
+    });
+    expect(request).toHaveBeenNthCalledWith(6, "sessions.usage.topRequests", {
+      startDate: "2026-02-16",
+      endDate: "2026-02-16",
+      limit: 100,
+      sessionLimit: 500,
+      model: "codex",
     });
 
     // Subsequent loads for the same gateway should skip mode/utcOffset immediately.
     await loadUsage(state);
 
-    expect(request).toHaveBeenNthCalledWith(5, "sessions.usage", {
+    expect(request).toHaveBeenNthCalledWith(7, "sessions.usage", {
       startDate: "2026-02-16",
       endDate: "2026-02-16",
       limit: 1000,
       includeContextWeight: true,
     });
-    expect(request).toHaveBeenNthCalledWith(6, "usage.cost", {
+    expect(request).toHaveBeenNthCalledWith(8, "usage.cost", {
       startDate: "2026-02-16",
       endDate: "2026-02-16",
+    });
+    expect(request).toHaveBeenNthCalledWith(9, "sessions.usage.topRequests", {
+      startDate: "2026-02-16",
+      endDate: "2026-02-16",
+      limit: 100,
+      sessionLimit: 500,
+      model: "codex",
     });
 
     // Persisted flag should survive cache resets (simulating app reload).

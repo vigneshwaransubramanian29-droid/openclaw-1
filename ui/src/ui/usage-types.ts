@@ -20,3 +20,27 @@ export type CostUsageSummary = {
 export type SessionUsageTimePoint = SharedSessionUsageTimePoint;
 
 export type SessionUsageTimeSeries = SharedSessionUsageTimeSeries;
+
+export type TopTokenRequestEntry = {
+  key: string;
+  sessionId: string;
+  agentId?: string;
+  label?: string;
+  channel?: string;
+  provider?: string;
+  model?: string;
+  timestamp: number;
+  tokens: number;
+  cost?: number;
+  role: "assistant";
+  content: string;
+};
+
+export type SessionsTopTokenRequestsResult = {
+  updatedAt: number;
+  startDate: string;
+  endDate: string;
+  totalScannedSessions: number;
+  totalCandidateMessages: number;
+  requests: TopTokenRequestEntry[];
+};
