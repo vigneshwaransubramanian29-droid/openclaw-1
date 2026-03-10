@@ -556,6 +556,54 @@ export async function runMemoryStatus(opts: MemoryCommandOptions) {
         lines.push(`${label("Batch error")} ${warn(status.batch.lastError)}`);
       }
     }
+    const sqliteMemory = (status.custom as { sqliteMemory?: Record<string, unknown> } | undefined)
+      ?.sqliteMemory;
+    if (sqliteMemory && sqliteMemory.enabled === true) {
+      const degraded = sqliteMemory.degraded === true;
+      lines.push(
+        `${label("SQLite memory")} ${colorize(
+          rich,
+          degraded ? theme.warn : theme.success,
+          degraded ? "degraded" : "ready",
+        )}`,
+      );
+      if (typeof sqliteMemory.mode === "string") {
+        lines.push(`${label("SQLite mode")} ${info(sqliteMemory.mode)}`);
+      }
+      if (typeof sqliteMemory.dbPath === "string") {
+        lines.push(`${label("SQLite path")} ${info(shortenHomePath(sqliteMemory.dbPath))}`);
+      }
+      const rowCounts = sqliteMemory.rowCounts as
+        | {
+            sessions?: number;
+            messages?: number;
+            facts?: number;
+            tasks?: number;
+            summaries?: number;
+          }
+        | undefined;
+      if (rowCounts) {
+        lines.push(
+          `${label("SQLite rows")} ${info(
+            `sessions ${rowCounts.sessions ?? 0}, messages ${rowCounts.messages ?? 0}, facts ${rowCounts.facts ?? 0}, tasks ${rowCounts.tasks ?? 0}, summaries ${rowCounts.summaries ?? 0}`,
+          )}`,
+        );
+      }
+      const latencyParts = [
+        typeof sqliteMemory.lastSearchMs === "number" ? `search ${sqliteMemory.lastSearchMs}ms` : null,
+        typeof sqliteMemory.lastSyncMs === "number" ? `sync ${sqliteMemory.lastSyncMs}ms` : null,
+        typeof sqliteMemory.lastWriteMs === "number" ? `write ${sqliteMemory.lastWriteMs}ms` : null,
+      ].filter(Boolean);
+      if (latencyParts.length > 0) {
+        lines.push(`${label("SQLite latency")} ${info(latencyParts.join(" · "))}`);
+      }
+      if (typeof sqliteMemory.lastError === "string" && sqliteMemory.lastError.trim()) {
+        lines.push(`${label("SQLite error")} ${warn(sqliteMemory.lastError)}`);
+      }
+      if (typeof sqliteMemory.fallbackState === "string") {
+        lines.push(`${label("SQLite fallback")} ${muted(sqliteMemory.fallbackState)}`);
+      }
+    }
     if (status.fallback?.reason) {
       lines.push(muted(status.fallback.reason));
     }

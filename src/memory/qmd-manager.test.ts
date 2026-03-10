@@ -1325,7 +1325,7 @@ describe("QmdMemoryManager", () => {
     await manager.close();
   });
 
-  it("honors multiple forced sync requests while forced queue is active", async () => {
+  it("coalesces multiple forced sync requests during one active run", async () => {
     cfg = {
       ...cfg,
       memory: {
@@ -1344,10 +1344,8 @@ describe("QmdMemoryManager", () => {
     } as OpenClawConfig;
 
     const firstUpdateSpawned = createDeferred<void>();
-    const secondUpdateSpawned = createDeferred<void>();
     let updateCalls = 0;
     let releaseFirstUpdate: (() => void) | null = null;
-    let releaseSecondUpdate: (() => void) | null = null;
     spawnMock.mockImplementation((_cmd: string, args: string[]) => {
       if (args[0] === "update") {
         updateCalls += 1;
@@ -1356,12 +1354,6 @@ describe("QmdMemoryManager", () => {
           releaseFirstUpdate = () => first.closeWith(0);
           firstUpdateSpawned.resolve();
           return first;
-        }
-        if (updateCalls === 2) {
-          const second = createMockChild({ autoClose: false });
-          releaseSecondUpdate = () => second.closeWith(0);
-          secondUpdateSpawned.resolve();
-          return second;
         }
         return createMockChild();
       }
@@ -1372,6 +1364,7 @@ describe("QmdMemoryManager", () => {
 
     const inFlight = manager.sync({ reason: "interval" });
     const forcedOne = manager.sync({ reason: "manual", force: true });
+    const forcedTwo = manager.sync({ reason: "manual-again", force: true });
 
     await firstUpdateSpawned.promise;
     expect(updateCalls).toBe(1);
@@ -1380,16 +1373,8 @@ describe("QmdMemoryManager", () => {
     }
     (releaseFirstUpdate as () => void)();
 
-    await secondUpdateSpawned.promise;
-    const forcedTwo = manager.sync({ reason: "manual-again", force: true });
-
-    if (!releaseSecondUpdate) {
-      throw new Error("second update release missing");
-    }
-    (releaseSecondUpdate as () => void)();
-
     await Promise.all([inFlight, forcedOne, forcedTwo]);
-    expect(updateCalls).toBe(3);
+    expect(updateCalls).toBe(2);
     await manager.close();
   });
 
@@ -2661,6 +2646,10 @@ describe("QmdMemoryManager", () => {
       | undefined;
     const busyTimeout = row?.busy_timeout ?? row?.timeout;
     expect(busyTimeout).toBe(1000);
+    const journalRow = db.prepare("PRAGMA journal_mode").get() as
+      | { journal_mode?: string }
+      | undefined;
+    expect((journalRow?.journal_mode ?? "").toLowerCase()).toBe("wal");
     await manager.close();
   });
 

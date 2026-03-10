@@ -7,7 +7,10 @@ import {
   sortSubagentRuns,
   type SubagentTargetResolution,
 } from "../../auto-reply/reply/subagents-utils.js";
-import { DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH } from "../../config/agent-limits.js";
+import {
+  DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH,
+  resolveSubagentRunTimeoutSeconds,
+} from "../../config/agent-limits.js";
 import { loadConfig } from "../../config/config.js";
 import type { SessionEntry } from "../../config/sessions.js";
 import { loadSessionStore, resolveStorePath, updateSessionStore } from "../../config/sessions.js";
@@ -649,6 +652,8 @@ export function createSubagentsTool(opts?: { agentSessionKey?: string }): AnyAge
 
         const idempotencyKey = crypto.randomUUID();
         let runId: string = idempotencyKey;
+        const restartRunTimeoutSeconds =
+          resolved.entry.runTimeoutSeconds ?? resolveSubagentRunTimeoutSeconds(loadConfig());
         try {
           const response = await callGateway<{ runId: string }>({
             method: "agent",
@@ -660,7 +665,7 @@ export function createSubagentsTool(opts?: { agentSessionKey?: string }): AnyAge
               deliver: false,
               channel: INTERNAL_MESSAGE_CHANNEL,
               lane: AGENT_LANE_SUBAGENT,
-              timeout: 0,
+              timeout: restartRunTimeoutSeconds,
             },
             timeoutMs: 10_000,
           });
@@ -687,7 +692,7 @@ export function createSubagentsTool(opts?: { agentSessionKey?: string }): AnyAge
           previousRunId: resolved.entry.runId,
           nextRunId: runId,
           fallback: resolved.entry,
-          runTimeoutSeconds: resolved.entry.runTimeoutSeconds ?? 0,
+          runTimeoutSeconds: restartRunTimeoutSeconds,
         });
 
         return jsonResult({

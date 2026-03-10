@@ -69,6 +69,8 @@ const EMBEDDING_CACHE_TABLE = "embedding_cache";
 const SESSION_DIRTY_DEBOUNCE_MS = 5000;
 const SESSION_DELTA_READ_CHUNK_BYTES = 64 * 1024;
 const VECTOR_LOAD_TIMEOUT_MS = 30_000;
+const INDEX_RENAME_MAX_RETRIES = 5;
+const INDEX_RENAME_BASE_DELAY_MS = 50;
 const IGNORED_MEMORY_WATCH_DIR_NAMES = new Set([
   ".git",
   "node_modules",
@@ -263,6 +265,14 @@ export abstract class MemoryManagerSyncOps {
     // Set it on every open so concurrent processes retry instead of
     // failing immediately with SQLITE_BUSY.
     db.exec("PRAGMA busy_timeout = 5000");
+    // WAL mode reduces writer-vs-reader lock contention for long-running agents.
+    // Treat this as best-effort because transient Windows file handles can
+    // reject the mode flip even when the connection itself is valid.
+    try {
+      db.exec("PRAGMA journal_mode = WAL");
+    } catch (err) {
+      log.debug(`memory index WAL enable skipped for ${dbPath}: ${String(err)}`);
+    }
     return db;
   }
 
@@ -334,13 +344,49 @@ export abstract class MemoryManagerSyncOps {
       const source = `${sourceBase}${suffix}`;
       const target = `${targetBase}${suffix}`;
       try {
-        await fs.rename(source, target);
+        await this.renameIndexFileWithRetry(source, target);
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
           throw err;
         }
       }
     }
+  }
+
+  private async renameIndexFileWithRetry(source: string, target: string): Promise<void> {
+    for (let attempt = 0; attempt <= INDEX_RENAME_MAX_RETRIES; attempt += 1) {
+      try {
+        await fs.rename(source, target);
+        return;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        const isLastAttempt = attempt >= INDEX_RENAME_MAX_RETRIES;
+
+        // Windows can refuse atomic rename when other processes hold read handles.
+        // In that case fall back to copy + best-effort delete to keep reindex resilient.
+        if (
+          process.platform === "win32" &&
+          (code === "EPERM" || code === "EEXIST" || (isLastAttempt && this.isLockRenameCode(code)))
+        ) {
+          await fs.copyFile(source, target);
+          await fs.rm(source, { force: true }).catch(() => {});
+          return;
+        }
+
+        if (!isLastAttempt && this.isLockRenameCode(code)) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, INDEX_RENAME_BASE_DELAY_MS * 2 ** attempt),
+          );
+          continue;
+        }
+
+        throw err;
+      }
+    }
+  }
+
+  private isLockRenameCode(code: string | undefined): boolean {
+    return code === "EBUSY" || code === "EPERM" || code === "EACCES" || code === "ENOTEMPTY";
   }
 
   private async removeIndexFiles(basePath: string): Promise<void> {

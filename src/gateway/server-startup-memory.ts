@@ -13,8 +13,14 @@ export async function startGatewayMemoryBackend(params: {
     if (!resolveMemorySearchConfig(params.cfg, agentId)) {
       continue;
     }
+    const memorySearch = resolveMemorySearchConfig(params.cfg, agentId);
+    if (!memorySearch) {
+      continue;
+    }
     const resolved = resolveMemoryBackendConfig({ cfg: params.cfg, agentId });
-    if (resolved.backend !== "qmd" || !resolved.qmd) {
+    const shouldInitQmd = resolved.backend === "qmd" && Boolean(resolved.qmd);
+    const shouldInitSqliteSidecar = memorySearch.sqliteMemory.enabled;
+    if (!shouldInitQmd && !shouldInitSqliteSidecar) {
       continue;
     }
 
@@ -25,6 +31,15 @@ export async function startGatewayMemoryBackend(params: {
       );
       continue;
     }
-    params.log.info?.(`qmd memory startup initialization armed for agent "${agentId}"`);
+    const armed: string[] = [];
+    if (shouldInitQmd) {
+      armed.push("qmd");
+    }
+    if (shouldInitSqliteSidecar) {
+      armed.push("sqlite sidecar");
+    }
+    params.log.info?.(
+      `${armed.join(" + ")} memory startup initialization armed for agent "${agentId}"`,
+    );
   }
 }

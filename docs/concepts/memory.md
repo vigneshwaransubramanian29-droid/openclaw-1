@@ -112,6 +112,63 @@ Defaults:
 - `memorySearch.provider = "ollama"` is also supported for local/self-hosted
   Ollama embeddings (`/api/embeddings`), but it is not auto-selected.
 
+### SQLite sidecar memory
+
+OpenClaw can also add an **opt-in SQLite sidecar** under
+`agents.defaults.memorySearch.sqliteMemory`.
+
+This mode does **not** replace the active memory backend. Instead, it keeps the
+current backend in place and adds a local structured database for:
+
+- fast current-session recall
+- fast recent-history lookup
+- reusable facts and tasks extracted from Markdown memory files
+- compact summaries when older transcript windows are pruned
+
+Defaults:
+
+- Disabled by default.
+- Uses `~/.openclaw/memory/{agentId}.structured.sqlite`.
+- Falls back to the existing backend if the sidecar fails.
+- Keeps `memory_search` and `memory_get` output shapes unchanged.
+- Adds `sessions/*.jsonl` reads to `memory_get` when the sidecar is enabled.
+
+Example:
+
+```json5
+agents: {
+  defaults: {
+    memorySearch: {
+      sqliteMemory: {
+        enabled: true,
+        mode: "sidecar",
+        fallback: "existing",
+        path: "~/.openclaw/memory/{agentId}.structured.sqlite",
+        retrieval: {
+          maxResults: 6,
+          sessionLimit: 2,
+          recentLimit: 2,
+          factTaskLimit: 1,
+          summaryLimit: 1,
+          recentWindowDays: 14,
+        },
+        retention: {
+          messageDays: 30,
+          maxMessagesPerSession: 500,
+          summaryMaxChars: 1200,
+        },
+      },
+    },
+  },
+}
+```
+
+Optional env overrides:
+
+- `ENABLE_SQLITE_MEMORY=true`
+- `SQLITE_MEMORY_MODE=sidecar`
+- `SQLITE_MEMORY_FALLBACK=existing`
+
 Remote embeddings **require** an API key for the embedding provider. OpenClaw
 resolves keys from auth profiles, `models.providers.*.apiKey`, or environment
 variables. Codex OAuth only covers chat/completions and does **not** satisfy

@@ -869,6 +869,44 @@ describe("runEmbeddedPiAgent auth profile rotation", () => {
     });
   });
 
+  it("returns an explicit timeout payload when compaction times out without assistant output", async () => {
+    await withAgentWorkspace(async ({ agentDir, workspaceDir }) => {
+      await writeAuthStore(agentDir);
+
+      runEmbeddedAttemptMock.mockResolvedValueOnce(
+        makeAttempt({
+          aborted: true,
+          timedOut: true,
+          timedOutDuringCompaction: true,
+        }),
+      );
+
+      const result = await runEmbeddedPiAgent({
+        sessionId: "session:test",
+        sessionKey: "agent:test:compaction-timeout-no-output",
+        sessionFile: path.join(workspaceDir, "session.jsonl"),
+        workspaceDir,
+        agentDir,
+        config: makeConfig(),
+        prompt: "hello",
+        provider: "openai",
+        model: "mock-1",
+        authProfileId: "openai:p1",
+        authProfileIdSource: "auto",
+        timeoutMs: 5_000,
+        runId: "run:compaction-timeout-no-output",
+      });
+
+      expect(runEmbeddedAttemptMock).toHaveBeenCalledTimes(1);
+      expect(result.payloads?.[0]?.isError).toBe(true);
+      expect(result.payloads?.[0]?.text ?? "").toContain(
+        "Request timed out while finalizing context compaction",
+      );
+
+      await expectProfileP2UsageUnchanged(agentDir);
+    });
+  });
+
   it("does not rotate for user-pinned profiles", async () => {
     await withAgentWorkspace(async ({ agentDir, workspaceDir }) => {
       await writeAuthStore(agentDir);

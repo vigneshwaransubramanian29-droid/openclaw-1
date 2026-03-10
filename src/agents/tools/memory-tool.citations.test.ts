@@ -180,4 +180,19 @@ describe("memory tools", () => {
       path: "memory/2026-02-19.md",
     });
   });
+
+  it("passes transcript paths through memory_get unchanged", async () => {
+    setMemoryReadFileImpl(async (params: MemoryReadParams) => ({
+      text: '{"type":"message"}',
+      path: params.relPath,
+    }));
+
+    const tool = createMemoryGetToolOrThrow();
+    const result = await tool.execute("call_session", { path: "sessions/session-alpha.jsonl" });
+
+    expect(result.details).toEqual({
+      text: '{"type":"message"}',
+      path: "sessions/session-alpha.jsonl",
+    });
+  });
 });

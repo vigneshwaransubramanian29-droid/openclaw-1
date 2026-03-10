@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import "./test-helpers/fast-core-tools.js";
+import { DEFAULT_SUBAGENT_RUN_TIMEOUT_SECONDS } from "../config/agent-limits.js";
 import {
   getCallGatewayMock,
   getSessionsSpawnTool,
@@ -37,13 +38,13 @@ describe("sessions_spawn default runTimeoutSeconds (config absent)", () => {
     getCallGatewayMock().mockClear();
   });
 
-  it("falls back to 0 (no timeout) when config key is absent", async () => {
+  it("falls back to the repo default when config key is absent", async () => {
     configureDefaultsWithoutTimeout();
     const gateway = setupSessionsSpawnGatewayMock({});
     const tool = await getSessionsSpawnTool({ agentSessionKey: MAIN_SESSION_KEY });
 
     const result = await tool.execute("call-1", { task: "hello" });
     expect(result.details).toMatchObject({ status: "accepted" });
-    expect(readSpawnTimeout(gateway.calls)).toBe(0);
+    expect(readSpawnTimeout(gateway.calls)).toBe(DEFAULT_SUBAGENT_RUN_TIMEOUT_SECONDS);
   });
 });

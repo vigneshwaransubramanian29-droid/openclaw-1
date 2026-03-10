@@ -681,6 +681,34 @@ export const MemorySearchSchema = z
       })
       .strict()
       .optional(),
+    sqliteMemory: z
+      .object({
+        enabled: z.boolean().optional(),
+        mode: z.literal("sidecar").optional(),
+        fallback: z.literal("existing").optional(),
+        path: z.string().optional(),
+        retrieval: z
+          .object({
+            maxResults: z.number().int().positive().optional(),
+            sessionLimit: z.number().int().nonnegative().optional(),
+            recentLimit: z.number().int().nonnegative().optional(),
+            factTaskLimit: z.number().int().nonnegative().optional(),
+            summaryLimit: z.number().int().nonnegative().optional(),
+            recentWindowDays: z.number().int().positive().optional(),
+          })
+          .strict()
+          .optional(),
+        retention: z
+          .object({
+            messageDays: z.number().int().positive().optional(),
+            maxMessagesPerSession: z.number().int().positive().optional(),
+            summaryMaxChars: z.number().int().positive().optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .optional();

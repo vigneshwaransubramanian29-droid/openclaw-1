@@ -15,6 +15,31 @@ export type MemoryEmbeddingProbeResult = {
   error?: string;
 };
 
+export type SqliteMemoryProviderStatus = {
+  enabled: boolean;
+  mode: "sidecar";
+  dbPath: string;
+  degraded: boolean;
+  fallback: "existing";
+  fallbackState: "existing" | "delegate-only";
+  rowCounts?: {
+    sessions?: number;
+    messages?: number;
+    facts?: number;
+    tasks?: number;
+    summaries?: number;
+    memoryLinks?: number;
+  };
+  lastSearchMs?: number;
+  lastSyncMs?: number;
+  lastWriteMs?: number;
+  lastError?: string;
+  fts?: {
+    available: boolean;
+    error?: string;
+  };
+};
+
 export type MemorySyncProgressUpdate = {
   completed: number;
   total: number;
@@ -55,7 +80,9 @@ export type MemoryProviderStatus = {
     lastError?: string;
     lastProvider?: string;
   };
-  custom?: Record<string, unknown>;
+  custom?: Record<string, unknown> & {
+    sqliteMemory?: SqliteMemoryProviderStatus;
+  };
 };
 
 export interface MemorySearchManager {

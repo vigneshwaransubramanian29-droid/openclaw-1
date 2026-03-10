@@ -426,6 +426,32 @@ export type MemorySearchConfig = {
     /** Optional cap on cached embeddings (best-effort). */
     maxEntries?: number;
   };
+  /** Optional local structured SQLite sidecar for fast session/fact recall. */
+  sqliteMemory?: {
+    /** Enable the SQLite sidecar (default: false). */
+    enabled?: boolean;
+    /** Sidecar mode (default: "sidecar"). */
+    mode?: "sidecar";
+    /** Fallback behavior when sidecar fails (default: "existing"). */
+    fallback?: "existing";
+    /** Sidecar DB path (supports {agentId}). */
+    path?: string;
+    /** Retrieval caps to keep recall compact. */
+    retrieval?: {
+      maxResults?: number;
+      sessionLimit?: number;
+      recentLimit?: number;
+      factTaskLimit?: number;
+      summaryLimit?: number;
+      recentWindowDays?: number;
+    };
+    /** Retention and pruning behavior for structured memory. */
+    retention?: {
+      messageDays?: number;
+      maxMessagesPerSession?: number;
+      summaryMaxChars?: number;
+    };
+  };
 };
 
 export type ToolsConfig = {

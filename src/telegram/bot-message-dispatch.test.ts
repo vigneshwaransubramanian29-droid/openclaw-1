@@ -50,7 +50,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
   type TelegramMessageContext = Parameters<typeof dispatchTelegramMessage>[0]["context"];
 
   beforeEach(() => {
-    createTelegramDraftStream.mockClear();
+    createTelegramDraftStream.mockReset();
     dispatchReplyWithBufferedBlockDispatcher.mockClear();
     deliverReplies.mockClear();
     editMessageTelegram.mockClear();
@@ -358,15 +358,10 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(loadSessionStore).toHaveBeenCalledWith("/tmp/sessions.json", { skipCache: true });
   });
 
-  it("does not overwrite finalized preview when additional final payloads are sent", async () => {
-    const draftStream = createDraftStream(999);
-    createTelegramDraftStream.mockReturnValue(draftStream);
+  it("uses plain-final fast path without lane/draft bookkeeping", async () => {
     dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ dispatcherOptions }) => {
       await dispatcherOptions.deliver({ text: "Primary result" }, { kind: "final" });
-      await dispatcherOptions.deliver(
-        { text: "⚠️ Recovered tool error details" },
-        { kind: "final" },
-      );
+      await dispatcherOptions.deliver({ text: "⚠️ Recovered tool error details" }, { kind: "final" });
       return { queuedFinal: true };
     });
     deliverReplies.mockResolvedValue({ delivered: true });
@@ -374,20 +369,21 @@ describe("dispatchTelegramMessage draft streaming", () => {
 
     await dispatchWithContext({ context: createContext() });
 
-    expect(editMessageTelegram).toHaveBeenCalledTimes(1);
-    expect(editMessageTelegram).toHaveBeenCalledWith(
-      123,
-      999,
-      "Primary result",
-      expect.any(Object),
+    expect(createTelegramDraftStream).not.toHaveBeenCalled();
+    expect(editMessageTelegram).not.toHaveBeenCalled();
+    expect(deliverReplies).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        replies: [expect.objectContaining({ text: "Primary result" })],
+      }),
     );
-    expect(deliverReplies).toHaveBeenCalledWith(
+    expect(deliverReplies).toHaveBeenNthCalledWith(
+      2,
       expect.objectContaining({
         replies: [expect.objectContaining({ text: "⚠️ Recovered tool error details" })],
       }),
     );
-    expect(draftStream.clear).not.toHaveBeenCalled();
-    expect(draftStream.stop).toHaveBeenCalled();
+    expect(deliverReplies).toHaveBeenCalledTimes(2);
   });
 
   it("keeps streamed preview visible when final text regresses after a tool warning", async () => {
@@ -624,18 +620,17 @@ describe("dispatchTelegramMessage draft streaming", () => {
 
     await dispatchWithContext({ context: createContext(), streamMode: "partial" });
 
+    expect(deliverReplies).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replies: [expect.objectContaining({ text: "Message A final" })],
+      }),
+    );
     expect(answerDraftStream.forceNewMessage).toHaveBeenCalledTimes(1);
+    expect(editMessageTelegram).toHaveBeenCalledTimes(1);
     expect(editMessageTelegram).toHaveBeenNthCalledWith(
       1,
       123,
-      1001,
-      "Message A final",
-      expect.any(Object),
-    );
-    expect(editMessageTelegram).toHaveBeenNthCalledWith(
-      2,
-      123,
-      1002,
+      expect.any(Number),
       "Message B final",
       expect.any(Object),
     );
@@ -743,17 +738,16 @@ describe("dispatchTelegramMessage draft streaming", () => {
     const secondUpdateOrder = answerDraftStream.update.mock.invocationCallOrder[1];
     expect(earlyUpdateOrder).toBeLessThan(boundaryRotationOrder);
     expect(boundaryRotationOrder).toBeLessThan(secondUpdateOrder);
+    expect(deliverReplies).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replies: [expect.objectContaining({ text: "Message A final" })],
+      }),
+    );
+    expect(editMessageTelegram).toHaveBeenCalledTimes(1);
     expect(editMessageTelegram).toHaveBeenNthCalledWith(
       1,
       123,
-      1001,
-      "Message A final",
-      expect.any(Object),
-    );
-    expect(editMessageTelegram).toHaveBeenNthCalledWith(
-      2,
-      123,
-      1002,
+      expect.any(Number),
       "Message B final",
       expect.any(Object),
     );
@@ -1321,7 +1315,6 @@ describe("dispatchTelegramMessage draft streaming", () => {
   it.each([undefined, null] as const)(
     "skips outbound send when final payload text is %s and has no media",
     async (emptyText) => {
-      const { answerDraftStream } = setupDraftStreams({ answerMessageId: 999 });
       dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ dispatcherOptions }) => {
         await dispatcherOptions.deliver(
           { text: emptyText as unknown as string },
@@ -1335,7 +1328,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
 
       expect(deliverReplies).not.toHaveBeenCalled();
       expect(editMessageTelegram).not.toHaveBeenCalled();
-      expect(answerDraftStream.clear).toHaveBeenCalledTimes(1);
+      expect(createTelegramDraftStream).not.toHaveBeenCalled();
     },
   );
 
@@ -1792,9 +1785,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     );
   });
 
-  it("clears preview for error-only finals", async () => {
-    const draftStream = createDraftStream(999);
-    createTelegramDraftStream.mockReturnValue(draftStream);
+  it("delivers error-only finals without allocating preview lanes", async () => {
     dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ dispatcherOptions }) => {
       await dispatcherOptions.deliver({ text: "tool failed", isError: true }, { kind: "final" });
       await dispatcherOptions.deliver({ text: "another error", isError: true }, { kind: "final" });
@@ -1804,8 +1795,8 @@ describe("dispatchTelegramMessage draft streaming", () => {
 
     await dispatchWithContext({ context: createContext() });
 
-    // Error payloads skip preview finalization — preview must be cleaned up
-    expect(draftStream.clear).toHaveBeenCalledTimes(1);
+    expect(createTelegramDraftStream).not.toHaveBeenCalled();
+    expect(deliverReplies).toHaveBeenCalledTimes(2);
   });
 
   it("clears preview after media final delivery", async () => {
@@ -1822,22 +1813,17 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(draftStream.clear).toHaveBeenCalledTimes(1);
   });
 
-  it("clears stale preview when response is NO_REPLY", async () => {
-    const draftStream = createDraftStream(999);
-    createTelegramDraftStream.mockReturnValue(draftStream);
+  it("keeps NO_REPLY flow lane-free when no preview callbacks run", async () => {
     dispatchReplyWithBufferedBlockDispatcher.mockResolvedValue({
       queuedFinal: false,
     });
 
     await dispatchWithContext({ context: createContext() });
 
-    // Preview contains stale partial text — must be cleaned up
-    expect(draftStream.clear).toHaveBeenCalledTimes(1);
+    expect(createTelegramDraftStream).not.toHaveBeenCalled();
   });
 
-  it("falls back when all finals are skipped and clears preview", async () => {
-    const draftStream = createDraftStream(999);
-    createTelegramDraftStream.mockReturnValue(draftStream);
+  it("falls back when all finals are skipped without allocating preview lanes", async () => {
     dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ dispatcherOptions }) => {
       dispatcherOptions.onSkip?.({ text: "" }, { reason: "no_reply", kind: "final" });
       return { queuedFinal: false };
@@ -1855,12 +1841,10 @@ describe("dispatchTelegramMessage draft streaming", () => {
         ],
       }),
     );
-    expect(draftStream.clear).toHaveBeenCalledTimes(1);
+    expect(createTelegramDraftStream).not.toHaveBeenCalled();
   });
 
-  it("sends fallback and clears preview when deliver throws (dispatcher swallows error)", async () => {
-    const draftStream = createDraftStream();
-    createTelegramDraftStream.mockReturnValue(draftStream);
+  it("sends fallback when deliver throws without allocating preview lanes", async () => {
     dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ dispatcherOptions }) => {
       try {
         await dispatcherOptions.deliver({ text: "Hello" }, { kind: "final" });
@@ -1885,7 +1869,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
         ],
       }),
     );
-    expect(draftStream.clear).toHaveBeenCalledTimes(1);
+    expect(createTelegramDraftStream).not.toHaveBeenCalled();
   });
 
   it("sends fallback in off mode when deliver throws", async () => {
@@ -1950,9 +1934,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
     expect(draftStream.clear).not.toHaveBeenCalled();
   });
 
-  it("cleans up preview even when fallback delivery throws (double failure)", async () => {
-    const draftStream = createDraftStream();
-    createTelegramDraftStream.mockReturnValue(draftStream);
+  it("attempts fallback even when both deliveries fail without preview lanes", async () => {
     dispatchReplyWithBufferedBlockDispatcher.mockImplementation(async ({ dispatcherOptions }) => {
       try {
         await dispatcherOptions.deliver({ text: "Hello" }, { kind: "final" });
@@ -1971,21 +1953,18 @@ describe("dispatchTelegramMessage draft streaming", () => {
     // Fallback throws, but cleanup still runs via try/finally.
     await dispatchWithContext({ context: createContext() }).catch(() => {});
 
-    // Verify fallback was attempted and preview still cleaned up
+    // Verify fallback was attempted.
     expect(deliverReplies).toHaveBeenCalledTimes(2);
-    expect(draftStream.clear).toHaveBeenCalledTimes(1);
+    expect(createTelegramDraftStream).not.toHaveBeenCalled();
   });
 
-  it("sends error fallback and clears preview when dispatcher throws", async () => {
-    const draftStream = createDraftStream(999);
-    createTelegramDraftStream.mockReturnValue(draftStream);
+  it("sends error fallback when dispatcher throws without allocating preview lanes", async () => {
     dispatchReplyWithBufferedBlockDispatcher.mockRejectedValue(new Error("dispatcher exploded"));
     deliverReplies.mockResolvedValue({ delivered: true });
 
     await dispatchWithContext({ context: createContext() });
 
-    expect(draftStream.stop).toHaveBeenCalledTimes(1);
-    expect(draftStream.clear).toHaveBeenCalledTimes(1);
+    expect(createTelegramDraftStream).not.toHaveBeenCalled();
     // Error fallback message should be delivered to the user instead of silent failure
     expect(deliverReplies).toHaveBeenCalledTimes(1);
     expect(deliverReplies).toHaveBeenCalledWith(

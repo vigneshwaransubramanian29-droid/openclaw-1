@@ -6,6 +6,26 @@ import type { SecretInput } from "../config/types.secrets.js";
 import { clampInt, clampNumber, resolveUserPath } from "../utils.js";
 import { resolveAgentConfig } from "./agent-scope.js";
 
+export type ResolvedSqliteMemoryConfig = {
+  enabled: boolean;
+  mode: "sidecar";
+  fallback: "existing";
+  path: string;
+  retrieval: {
+    maxResults: number;
+    sessionLimit: number;
+    recentLimit: number;
+    factTaskLimit: number;
+    summaryLimit: number;
+    recentWindowDays: number;
+  };
+  retention: {
+    messageDays: number;
+    maxMessagesPerSession: number;
+    summaryMaxChars: number;
+  };
+};
+
 export type ResolvedMemorySearchConfig = {
   enabled: boolean;
   sources: Array<"memory" | "sessions">;
@@ -77,6 +97,7 @@ export type ResolvedMemorySearchConfig = {
     enabled: boolean;
     maxEntries?: number;
   };
+  sqliteMemory: ResolvedSqliteMemoryConfig;
 };
 
 const DEFAULT_OPENAI_MODEL = "text-embedding-3-small";
@@ -101,6 +122,16 @@ const DEFAULT_TEMPORAL_DECAY_ENABLED = false;
 const DEFAULT_TEMPORAL_DECAY_HALF_LIFE_DAYS = 30;
 const DEFAULT_CACHE_ENABLED = true;
 const DEFAULT_SOURCES: Array<"memory" | "sessions"> = ["memory"];
+const DEFAULT_SQLITE_MEMORY_PATH = "~/.openclaw/memory/{agentId}.structured.sqlite";
+const DEFAULT_SQLITE_MEMORY_MAX_RESULTS = 6;
+const DEFAULT_SQLITE_MEMORY_SESSION_LIMIT = 2;
+const DEFAULT_SQLITE_MEMORY_RECENT_LIMIT = 2;
+const DEFAULT_SQLITE_MEMORY_FACT_TASK_LIMIT = 1;
+const DEFAULT_SQLITE_MEMORY_SUMMARY_LIMIT = 1;
+const DEFAULT_SQLITE_MEMORY_RECENT_WINDOW_DAYS = 14;
+const DEFAULT_SQLITE_MEMORY_MESSAGE_DAYS = 30;
+const DEFAULT_SQLITE_MEMORY_MAX_MESSAGES_PER_SESSION = 500;
+const DEFAULT_SQLITE_MEMORY_SUMMARY_MAX_CHARS = 1200;
 
 function normalizeSources(
   sources: Array<"memory" | "sessions"> | undefined,
@@ -130,6 +161,120 @@ function resolveStorePath(agentId: string, raw?: string): string {
   }
   const withToken = raw.includes("{agentId}") ? raw.replaceAll("{agentId}", agentId) : raw;
   return resolveUserPath(withToken);
+}
+
+function parseBooleanEnv(value: string | undefined): boolean | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+  return undefined;
+}
+
+function resolveSqliteMemoryPath(agentId: string, raw?: string): string {
+  const stateDir = resolveStateDir(process.env, os.homedir);
+  const fallback = DEFAULT_SQLITE_MEMORY_PATH.replace("~/.openclaw", stateDir);
+  const template = raw?.trim() || fallback;
+  return resolveUserPath(template.replaceAll("{agentId}", agentId));
+}
+
+function resolveSqliteMemoryConfig(
+  defaults: MemorySearchConfig | undefined,
+  overrides: MemorySearchConfig | undefined,
+  agentId: string,
+): ResolvedSqliteMemoryConfig {
+  const envEnabled = parseBooleanEnv(process.env.ENABLE_SQLITE_MEMORY);
+  const envMode = process.env.SQLITE_MEMORY_MODE?.trim();
+  const envFallback = process.env.SQLITE_MEMORY_FALLBACK?.trim();
+  const enabled = envEnabled ?? overrides?.sqliteMemory?.enabled ?? defaults?.sqliteMemory?.enabled ?? false;
+  return {
+    enabled,
+    mode:
+      envMode === "sidecar"
+        ? "sidecar"
+        : (overrides?.sqliteMemory?.mode ?? defaults?.sqliteMemory?.mode ?? "sidecar"),
+    fallback:
+      envFallback === "existing"
+        ? "existing"
+        : (overrides?.sqliteMemory?.fallback ?? defaults?.sqliteMemory?.fallback ?? "existing"),
+    path: resolveSqliteMemoryPath(
+      agentId,
+      overrides?.sqliteMemory?.path ?? defaults?.sqliteMemory?.path,
+    ),
+    retrieval: {
+      maxResults: clampInt(
+        overrides?.sqliteMemory?.retrieval?.maxResults ??
+          defaults?.sqliteMemory?.retrieval?.maxResults ??
+          DEFAULT_SQLITE_MEMORY_MAX_RESULTS,
+        1,
+        50,
+      ),
+      sessionLimit: clampInt(
+        overrides?.sqliteMemory?.retrieval?.sessionLimit ??
+          defaults?.sqliteMemory?.retrieval?.sessionLimit ??
+          DEFAULT_SQLITE_MEMORY_SESSION_LIMIT,
+        0,
+        50,
+      ),
+      recentLimit: clampInt(
+        overrides?.sqliteMemory?.retrieval?.recentLimit ??
+          defaults?.sqliteMemory?.retrieval?.recentLimit ??
+          DEFAULT_SQLITE_MEMORY_RECENT_LIMIT,
+        0,
+        50,
+      ),
+      factTaskLimit: clampInt(
+        overrides?.sqliteMemory?.retrieval?.factTaskLimit ??
+          defaults?.sqliteMemory?.retrieval?.factTaskLimit ??
+          DEFAULT_SQLITE_MEMORY_FACT_TASK_LIMIT,
+        0,
+        50,
+      ),
+      summaryLimit: clampInt(
+        overrides?.sqliteMemory?.retrieval?.summaryLimit ??
+          defaults?.sqliteMemory?.retrieval?.summaryLimit ??
+          DEFAULT_SQLITE_MEMORY_SUMMARY_LIMIT,
+        0,
+        50,
+      ),
+      recentWindowDays: clampInt(
+        overrides?.sqliteMemory?.retrieval?.recentWindowDays ??
+          defaults?.sqliteMemory?.retrieval?.recentWindowDays ??
+          DEFAULT_SQLITE_MEMORY_RECENT_WINDOW_DAYS,
+        1,
+        3650,
+      ),
+    },
+    retention: {
+      messageDays: clampInt(
+        overrides?.sqliteMemory?.retention?.messageDays ??
+          defaults?.sqliteMemory?.retention?.messageDays ??
+          DEFAULT_SQLITE_MEMORY_MESSAGE_DAYS,
+        1,
+        3650,
+      ),
+      maxMessagesPerSession: clampInt(
+        overrides?.sqliteMemory?.retention?.maxMessagesPerSession ??
+          defaults?.sqliteMemory?.retention?.maxMessagesPerSession ??
+          DEFAULT_SQLITE_MEMORY_MAX_MESSAGES_PER_SESSION,
+        1,
+        100_000,
+      ),
+      summaryMaxChars: clampInt(
+        overrides?.sqliteMemory?.retention?.summaryMaxChars ??
+          defaults?.sqliteMemory?.retention?.summaryMaxChars ??
+          DEFAULT_SQLITE_MEMORY_SUMMARY_MAX_CHARS,
+        100,
+        50_000,
+      ),
+    },
+  };
 }
 
 function mergeConfig(
@@ -282,6 +427,7 @@ function mergeConfig(
     enabled: overrides?.cache?.enabled ?? defaults?.cache?.enabled ?? DEFAULT_CACHE_ENABLED,
     maxEntries: overrides?.cache?.maxEntries ?? defaults?.cache?.maxEntries,
   };
+  const sqliteMemory = resolveSqliteMemoryConfig(defaults, overrides, agentId);
 
   const overlap = clampNumber(chunking.overlap, 0, Math.max(0, chunking.tokens - 1));
   const minScore = clampNumber(query.minScore, 0, 1);
@@ -349,6 +495,7 @@ function mergeConfig(
           ? Math.max(1, Math.floor(cache.maxEntries))
           : undefined,
     },
+    sqliteMemory,
   };
 }
 

@@ -39,6 +39,32 @@ vi.mock("../config/config.js", async (importOriginal) => {
   };
 });
 
+const loggingHoisted = vi.hoisted(() => {
+  const childLogger = {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    child: vi.fn(),
+  };
+  childLogger.child.mockReturnValue(childLogger);
+  return {
+    childLogger,
+    getChildLogger: vi.fn(() => childLogger),
+  };
+});
+
+export const telegramChildLogger = loggingHoisted.childLogger;
+export const getChildLoggerSpy = loggingHoisted.getChildLogger;
+
+vi.mock("../logging.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../logging.js")>();
+  return {
+    ...actual,
+    getChildLogger: loggingHoisted.getChildLogger,
+  };
+});
+
 vi.mock("../config/sessions.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../config/sessions.js")>();
   return {
@@ -327,6 +353,14 @@ beforeEach(() => {
   wasSentByBot.mockReturnValue(false);
   listSkillCommandsForAgents.mockReset();
   listSkillCommandsForAgents.mockReturnValue([]);
+  getChildLoggerSpy.mockReset();
+  getChildLoggerSpy.mockReturnValue(telegramChildLogger);
+  telegramChildLogger.debug.mockReset();
+  telegramChildLogger.info.mockReset();
+  telegramChildLogger.warn.mockReset();
+  telegramChildLogger.error.mockReset();
+  telegramChildLogger.child.mockReset();
+  telegramChildLogger.child.mockReturnValue(telegramChildLogger);
   middlewareUseSpy.mockReset();
   sequentializeSpy.mockReset();
   botCtorSpy.mockReset();

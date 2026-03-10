@@ -837,6 +837,32 @@ export const FIELD_HELP: Record<string, string> = {
     "Controls how fast older memory loses rank when temporal decay is enabled (half-life in days, default: 30). Lower values prioritize recent context more aggressively.",
   "agents.defaults.memorySearch.cache.enabled":
     "Caches computed chunk embeddings in SQLite so reindexing and incremental updates run faster (default: true). Keep this enabled unless investigating cache correctness or minimizing disk usage.",
+  "agents.defaults.memorySearch.sqliteMemory.enabled":
+    "Enables an additive SQLite sidecar for fast local session, fact, task, and summary recall. Keep this off unless you want durable structured memory on top of the existing backend.",
+  "agents.defaults.memorySearch.sqliteMemory.mode":
+    'Selects the structured memory integration mode. Keep "sidecar" so the current memory backend remains primary and the SQLite layer only augments retrieval.',
+  "agents.defaults.memorySearch.sqliteMemory.fallback":
+    'Defines what happens when the SQLite sidecar fails. Keep "existing" so memory retrieval immediately falls back to the current backend without interrupting agent execution.',
+  "agents.defaults.memorySearch.sqliteMemory.path":
+    "Sets the SQLite sidecar DB path for structured memory state. Keep the default `~/.openclaw/memory/{agentId}.structured.sqlite` unless you need explicit storage placement.",
+  "agents.defaults.memorySearch.sqliteMemory.retrieval.maxResults":
+    "Caps how many structured-memory hits the sidecar contributes before the existing backend fills remaining slots. Keep this low to avoid context overload.",
+  "agents.defaults.memorySearch.sqliteMemory.retrieval.sessionLimit":
+    "Limits exact current-session matches returned from the SQLite sidecar. Raise only when recent transcript recall needs more than the default narrow window.",
+  "agents.defaults.memorySearch.sqliteMemory.retrieval.recentLimit":
+    "Limits recent relevant structured-memory hits outside the current session. Keep this small so timely recall does not crowd out higher-value facts.",
+  "agents.defaults.memorySearch.sqliteMemory.retrieval.factTaskLimit":
+    "Limits fact and task hits returned from the sidecar. Increase only when durable markdown-backed facts are consistently under-recalled.",
+  "agents.defaults.memorySearch.sqliteMemory.retrieval.summaryLimit":
+    "Limits compact long-term summaries returned from the sidecar. Keep this low so summaries stay a fallback rather than replacing direct evidence.",
+  "agents.defaults.memorySearch.sqliteMemory.retrieval.recentWindowDays":
+    "Defines how far back the sidecar treats transcript memory as recent, in days. Lower values bias toward immediate work; higher values broaden session recall.",
+  "agents.defaults.memorySearch.sqliteMemory.retention.messageDays":
+    "Prunes older structured transcript messages after this many days, replacing them with compact summaries when needed. Lower values reduce DB growth and noisy recall.",
+  "agents.defaults.memorySearch.sqliteMemory.retention.maxMessagesPerSession":
+    "Caps stored transcript messages per session before the oldest entries are summarized and pruned. Use this to keep sidecar reads predictable on long-lived sessions.",
+  "agents.defaults.memorySearch.sqliteMemory.retention.summaryMaxChars":
+    "Caps deterministic summary length written when old transcript windows are compacted in the sidecar. Keep this short to preserve token efficiency.",
   memory: "Memory backend configuration (global).",
   "memory.backend":
     'Selects the global memory engine: "builtin" uses OpenClaw memory internals, while "qmd" uses the QMD sidecar pipeline. Keep "builtin" unless you intentionally operate QMD.',

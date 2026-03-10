@@ -166,6 +166,7 @@ Quick answers plus deeper troubleshooting for real-world setups (local dev, VPS,
 - [Gateway: ports, "already running", and remote mode](#gateway-ports-already-running-and-remote-mode)
   - [What port does the Gateway use?](#what-port-does-the-gateway-use)
   - [Why does `openclaw gateway status` say `Runtime: running` but `RPC probe: failed`?](#why-does-openclaw-gateway-status-say-runtime-running-but-rpc-probe-failed)
+  - [Why does native Windows say Gateway port 18789 is not listening service appears running](#why-does-native-windows-say-gateway-port-18789-is-not-listening-service-appears-running)
   - [Why does `openclaw gateway status` show `Config (cli)` and `Config (service)` different?](#why-does-openclaw-gateway-status-show-config-cli-and-config-service-different)
   - [What does "another gateway instance is already listening" mean?](#what-does-another-gateway-instance-is-already-listening-mean)
   - [How do I run OpenClaw in remote mode (client connects to a Gateway elsewhere)?](#how-do-i-run-openclaw-in-remote-mode-client-connects-to-a-gateway-elsewhere)
@@ -2465,6 +2466,48 @@ Use `openclaw gateway status` and trust these lines:
 - `Listening:` (what's actually bound on the port)
 - `Last gateway error:` (common root cause when the process is alive but the port isn't listening)
 
+### Why does native Windows say Gateway port 18789 is not listening service appears running
+
+On native Windows, `Runtime: running` comes from **Task Scheduler state**, not from a live socket probe. If the status output also says:
+
+```text
+Gateway port 18789 is not listening (service appears running).
+```
+
+then the Scheduled Task looks alive to Windows, but the gateway is not actually bound on `127.0.0.1:18789` anymore.
+
+Common causes:
+
+- A failed restart left Task Scheduler in a stale "running" state.
+- An older manual wrapper task is still pointing at a stale script.
+- The gateway exited during restart, and the task metadata did not catch up yet.
+
+What to trust:
+
+- `Probe target:` tells you where the CLI actually tried to connect.
+- `Listening:` tells you whether anything is really bound on the port.
+- `openclaw logs --follow` (or the latest file log) tells you whether the gateway ever came up.
+
+Repair path on native Windows:
+
+```powershell
+& "$env:APPDATA\npm\openclaw.cmd" gateway uninstall
+& "$env:APPDATA\npm\openclaw.cmd" gateway install --force
+& "$env:APPDATA\npm\openclaw.cmd" gateway restart
+```
+
+If that still fails, run the gateway once in the foreground:
+
+```powershell
+& "$env:APPDATA\npm\openclaw.cmd" gateway run --port 18789
+```
+
+If the foreground run binds successfully, the gateway itself is fine and the Scheduled Task wiring is the broken part. Remove any older/manual Windows task entries that still point at an old wrapper, then reinstall the service.
+
+If PowerShell blocks `openclaw.ps1` because of execution policy, use the `openclaw.cmd` form above.
+
+For long-term stability, prefer [Windows](/platforms/windows) via WSL2 over native Windows.
+
 ### Why does openclaw gateway status show Config cli and Config service different
 
 You're editing one config file while the service is running another (often a `--profile` / `OPENCLAW_STATE_DIR` mismatch).
@@ -2650,6 +2693,8 @@ If you run it manually (no service), use:
 ```powershell
 openclaw gateway run
 ```
+
+If status says `Gateway port 18789 is not listening (service appears running)`, see [Why does native Windows say Gateway port 18789 is not listening service appears running](#why-does-native-windows-say-gateway-port-18789-is-not-listening-service-appears-running).
 
 Docs: [Windows (WSL2)](/platforms/windows), [Gateway service runbook](/gateway).
 

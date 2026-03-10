@@ -1,7 +1,10 @@
 import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
 import { formatThinkingLevels, normalizeThinkLevel } from "../auto-reply/thinking.js";
-import { DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH } from "../config/agent-limits.js";
+import {
+  DEFAULT_SUBAGENT_MAX_SPAWN_DEPTH,
+  resolveSubagentRunTimeoutSeconds,
+} from "../config/agent-limits.js";
 import { loadConfig } from "../config/config.js";
 import { callGateway } from "../gateway/call.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
@@ -282,14 +285,9 @@ export async function spawnSubagentDirect(
   const hookRunner = getGlobalHookRunner();
   const cfg = loadConfig();
 
-  // When agent omits runTimeoutSeconds, use the config default.
-  // Falls back to 0 (no timeout) if config key is also unset,
-  // preserving current behavior for existing deployments.
-  const cfgSubagentTimeout =
-    typeof cfg?.agents?.defaults?.subagents?.runTimeoutSeconds === "number" &&
-    Number.isFinite(cfg.agents.defaults.subagents.runTimeoutSeconds)
-      ? Math.max(0, Math.floor(cfg.agents.defaults.subagents.runTimeoutSeconds))
-      : 0;
+  // When agent omits runTimeoutSeconds, use the configured default.
+  // Falls back to the repo default (30 minutes) when unset.
+  const cfgSubagentTimeout = resolveSubagentRunTimeoutSeconds(cfg);
   const runTimeoutSeconds =
     typeof params.runTimeoutSeconds === "number" && Number.isFinite(params.runTimeoutSeconds)
       ? Math.max(0, Math.floor(params.runTimeoutSeconds))

@@ -45,6 +45,10 @@ class MockGatewayClient {
   emitConnectError(message: string): void {
     this.callbacks.onConnectError?.(new Error(message));
   }
+
+  emitClose(code: number, reason: string): void {
+    this.callbacks.onClose?.(code, reason);
+  }
 }
 
 vi.mock("@agentclientprotocol/sdk", () => ({
@@ -180,6 +184,44 @@ describe("serveAcpGateway startup", () => {
       const gateway = getMockGateway();
       gateway.emitConnectError("connect failed");
       await expect(servePromise).rejects.toThrow("connect failed");
+      expect(mockState.agentSideConnectionCtor).not.toHaveBeenCalled();
+    } finally {
+      onceSpy.mockRestore();
+    }
+  });
+
+  it("rejects startup when gateway closes before hello", async () => {
+    const onceSpy = vi
+      .spyOn(process, "once")
+      .mockImplementation(
+        ((_signal: NodeJS.Signals, _handler: () => void) => process) as typeof process.once,
+      );
+
+    try {
+      const servePromise = serveAcpGateway({});
+      await Promise.resolve();
+
+      const gateway = getMockGateway();
+      gateway.emitClose(1006, "abnormal closure");
+      await expect(servePromise).rejects.toThrow(
+        "gateway closed before ready (1006): abnormal closure",
+      );
+      expect(mockState.agentSideConnectionCtor).not.toHaveBeenCalled();
+    } finally {
+      onceSpy.mockRestore();
+    }
+  });
+
+  it("shuts down cleanly when interrupted before gateway hello", async () => {
+    const { signalHandlers, onceSpy } = captureProcessSignalHandlers();
+
+    try {
+      const servePromise = serveAcpGateway({});
+      await Promise.resolve();
+
+      expect(mockState.agentSideConnectionCtor).not.toHaveBeenCalled();
+      signalHandlers.get("SIGTERM")?.();
+      await expect(servePromise).resolves.toBeUndefined();
       expect(mockState.agentSideConnectionCtor).not.toHaveBeenCalled();
     } finally {
       onceSpy.mockRestore();

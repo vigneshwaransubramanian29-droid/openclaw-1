@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
+import { resolveSubagentRunTimeoutSeconds } from "../config/agent-limits.js";
 import { loadConfig } from "../config/config.js";
 import {
   loadSessionStore,
@@ -689,7 +690,10 @@ function resolveSubagentWaitTimeoutMs(
   cfg: ReturnType<typeof loadConfig>,
   runTimeoutSeconds?: number,
 ) {
-  return resolveAgentTimeoutMs({ cfg, overrideSeconds: runTimeoutSeconds ?? 0 });
+  return resolveAgentTimeoutMs({
+    cfg,
+    overrideSeconds: runTimeoutSeconds ?? resolveSubagentRunTimeoutSeconds(cfg),
+  });
 }
 
 function startSweeper() {
@@ -1104,7 +1108,10 @@ export function replaceSubagentRunAfterSteer(params: {
   const spawnMode = source.spawnMode === "session" ? "session" : "run";
   const archiveAtMs =
     spawnMode === "session" ? undefined : archiveAfterMs ? now + archiveAfterMs : undefined;
-  const runTimeoutSeconds = params.runTimeoutSeconds ?? source.runTimeoutSeconds ?? 0;
+  const runTimeoutSeconds =
+    params.runTimeoutSeconds ??
+    source.runTimeoutSeconds ??
+    resolveSubagentRunTimeoutSeconds(cfg);
   const waitTimeoutMs = resolveSubagentWaitTimeoutMs(cfg, runTimeoutSeconds);
   const preserveFrozenResultFallback = params.preserveFrozenResultFallback === true;
 
@@ -1167,7 +1174,7 @@ export function registerSubagentRun(params: {
   const spawnMode = params.spawnMode === "session" ? "session" : "run";
   const archiveAtMs =
     spawnMode === "session" ? undefined : archiveAfterMs ? now + archiveAfterMs : undefined;
-  const runTimeoutSeconds = params.runTimeoutSeconds ?? 0;
+  const runTimeoutSeconds = params.runTimeoutSeconds ?? resolveSubagentRunTimeoutSeconds(cfg);
   const waitTimeoutMs = resolveSubagentWaitTimeoutMs(cfg, runTimeoutSeconds);
   const requesterOrigin = normalizeDeliveryContext(params.requesterOrigin);
   subagentRuns.set(params.runId, {

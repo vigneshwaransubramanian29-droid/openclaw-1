@@ -1464,13 +1464,16 @@ export async function runEmbeddedPiAgent(
           // Timeout aborts can leave the run without any assistant payloads.
           // Emit an explicit timeout error instead of silently completing, so
           // callers do not lose the turn as an orphaned user message.
-          if (timedOut && !timedOutDuringCompaction && payloads.length === 0) {
+          if (timedOut && payloads.length === 0) {
+            const timeoutMessage = timedOutDuringCompaction
+              ? "Request timed out while finalizing context compaction. " +
+                "Please try again, or increase `agents.defaults.timeoutSeconds` in your config."
+              : "Request timed out before a response was generated. " +
+                "Please try again, or increase `agents.defaults.timeoutSeconds` in your config.";
             return {
               payloads: [
                 {
-                  text:
-                    "Request timed out before a response was generated. " +
-                    "Please try again, or increase `agents.defaults.timeoutSeconds` in your config.",
+                  text: timeoutMessage,
                   isError: true,
                 },
               ],

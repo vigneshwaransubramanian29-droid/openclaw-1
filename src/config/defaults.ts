@@ -1,6 +1,10 @@
 import { DEFAULT_CONTEXT_TOKENS } from "../agents/defaults.js";
 import { normalizeProviderId, parseModelRef } from "../agents/model-selection.js";
-import { DEFAULT_AGENT_MAX_CONCURRENT, DEFAULT_SUBAGENT_MAX_CONCURRENT } from "./agent-limits.js";
+import {
+  DEFAULT_AGENT_MAX_CONCURRENT,
+  DEFAULT_SUBAGENT_MAX_CONCURRENT,
+  DEFAULT_SUBAGENT_RUN_TIMEOUT_SECONDS,
+} from "./agent-limits.js";
 import { resolveAgentModelPrimaryValue } from "./model-input.js";
 import {
   DEFAULT_TALK_PROVIDER,
@@ -354,7 +358,10 @@ export function applyAgentDefaults(cfg: OpenClawConfig): OpenClawConfig {
   const hasSubMax =
     typeof defaults?.subagents?.maxConcurrent === "number" &&
     Number.isFinite(defaults.subagents.maxConcurrent);
-  if (hasMax && hasSubMax) {
+  const hasSubRunTimeout =
+    typeof defaults?.subagents?.runTimeoutSeconds === "number" &&
+    Number.isFinite(defaults.subagents.runTimeoutSeconds);
+  if (hasMax && hasSubMax && hasSubRunTimeout) {
     return cfg;
   }
 
@@ -368,6 +375,10 @@ export function applyAgentDefaults(cfg: OpenClawConfig): OpenClawConfig {
   const nextSubagents = defaults?.subagents ? { ...defaults.subagents } : {};
   if (!hasSubMax) {
     nextSubagents.maxConcurrent = DEFAULT_SUBAGENT_MAX_CONCURRENT;
+    mutated = true;
+  }
+  if (!hasSubRunTimeout) {
+    nextSubagents.runTimeoutSeconds = DEFAULT_SUBAGENT_RUN_TIMEOUT_SECONDS;
     mutated = true;
   }
 

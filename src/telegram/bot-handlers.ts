@@ -150,9 +150,9 @@ export const registerTelegramHandlers = ({
     Number.isFinite(opts.testTimings.mediaGroupFlushMs)
       ? Math.max(10, Math.floor(opts.testTimings.mediaGroupFlushMs))
       : MEDIA_GROUP_TIMEOUT_MS;
+  const TELEGRAM_FLUSH_TASK_WARN_MS = 10_000;
 
   const mediaGroupBuffer = new Map<string, MediaGroupEntry>();
-  let mediaGroupProcessing: Promise<void> = Promise.resolve();
 
   type TextFragmentEntry = {
     key: string;
@@ -160,7 +160,69 @@ export const registerTelegramHandlers = ({
     timer: ReturnType<typeof setTimeout>;
   };
   const textFragmentBuffer = new Map<string, TextFragmentEntry>();
-  let textFragmentProcessing: Promise<void> = Promise.resolve();
+  type TelegramFlushQueueStats = {
+    queued: number;
+    running: number;
+    succeeded: number;
+    failed: number;
+    lastError?: string;
+    lastDurationMs?: number;
+    maxDurationMs: number;
+  };
+  const flushQueueStats: TelegramFlushQueueStats = {
+    queued: 0,
+    running: 0,
+    succeeded: 0,
+    failed: 0,
+    maxDurationMs: 0,
+  };
+  let globalFlushQueue: Promise<void> = Promise.resolve();
+  const enqueueFlushTask = async (label: string, task: () => Promise<void>) => {
+    flushQueueStats.queued += 1;
+    globalFlushQueue = globalFlushQueue
+      .then(async () => {
+        const startedAt = Date.now();
+        flushQueueStats.running += 1;
+        try {
+          await task();
+          flushQueueStats.succeeded += 1;
+        } catch (err) {
+          flushQueueStats.failed += 1;
+          flushQueueStats.lastError = `${label}: ${String(err)}`;
+          runtime.error?.(danger(`telegram flush task failed (${label}): ${String(err)}`));
+        } finally {
+          flushQueueStats.running = Math.max(0, flushQueueStats.running - 1);
+          const durationMs = Date.now() - startedAt;
+          flushQueueStats.lastDurationMs = durationMs;
+          flushQueueStats.maxDurationMs = Math.max(flushQueueStats.maxDurationMs, durationMs);
+          if (durationMs >= TELEGRAM_FLUSH_TASK_WARN_MS) {
+            logger.warn(
+              {
+                label,
+                durationMs,
+                stats: flushQueueStats,
+              },
+              "telegram flush queue task slow",
+            );
+          } else {
+            logger.debug(
+              {
+                label,
+                durationMs,
+                stats: flushQueueStats,
+              },
+              "telegram flush queue task",
+            );
+          }
+        }
+      })
+      .catch((err) => {
+        flushQueueStats.failed += 1;
+        flushQueueStats.lastError = `${label}: ${String(err)}`;
+        runtime.error?.(danger(`telegram flush queue chain failed (${label}): ${String(err)}`));
+      });
+    await globalFlushQueue;
+  };
 
   const debounceMs = resolveInboundDebounceMs({ cfg, channel: "telegram" });
   const FORWARD_BURST_DEBOUNCE_MS = 80;
@@ -432,12 +494,9 @@ export const registerTelegramHandlers = ({
   };
 
   const queueTextFragmentFlush = async (entry: TextFragmentEntry) => {
-    textFragmentProcessing = textFragmentProcessing
-      .then(async () => {
-        await flushTextFragments(entry);
-      })
-      .catch(() => undefined);
-    await textFragmentProcessing;
+    await enqueueFlushTask("text-fragment", async () => {
+      await flushTextFragments(entry);
+    });
   };
 
   const runTextFragmentFlush = async (entry: TextFragmentEntry) => {
@@ -930,12 +989,7 @@ export const registerTelegramHandlers = ({
         // Not appendable (or limits exceeded): flush buffered entry first, then continue normally.
         clearTimeout(existing.timer);
         textFragmentBuffer.delete(key);
-        textFragmentProcessing = textFragmentProcessing
-          .then(async () => {
-            await flushTextFragments(existing);
-          })
-          .catch(() => undefined);
-        await textFragmentProcessing;
+        await queueTextFragmentFlush(existing);
       }
 
       const shouldStart = text.length >= TELEGRAM_TEXT_FRAGMENT_START_THRESHOLD_CHARS;
@@ -960,24 +1014,18 @@ export const registerTelegramHandlers = ({
         existing.messages.push({ msg, ctx });
         existing.timer = setTimeout(async () => {
           mediaGroupBuffer.delete(mediaGroupId);
-          mediaGroupProcessing = mediaGroupProcessing
-            .then(async () => {
-              await processMediaGroup(existing);
-            })
-            .catch(() => undefined);
-          await mediaGroupProcessing;
+          await enqueueFlushTask("media-group", async () => {
+            await processMediaGroup(existing);
+          });
         }, mediaGroupTimeoutMs);
       } else {
         const entry: MediaGroupEntry = {
           messages: [{ msg, ctx }],
           timer: setTimeout(async () => {
             mediaGroupBuffer.delete(mediaGroupId);
-            mediaGroupProcessing = mediaGroupProcessing
-              .then(async () => {
-                await processMediaGroup(entry);
-              })
-              .catch(() => undefined);
-            await mediaGroupProcessing;
+            await enqueueFlushTask("media-group", async () => {
+              await processMediaGroup(entry);
+            });
           }, mediaGroupTimeoutMs),
         };
         mediaGroupBuffer.set(mediaGroupId, entry);

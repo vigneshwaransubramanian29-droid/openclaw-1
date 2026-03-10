@@ -1,0 +1,2 @@
+2026-03-10T00:32:18.011+05:30 [gateway] removed stale session lock: C:\Users\Shali\.openclaw\agents\main\sessions\d4405b03-a676-4c3e-b141-60c9e4a806b6.jsonl.lock (dead-pid, too-old)
+2026-03-10T00:32:22.045+05:30 [compaction-safeguard] Compaction safeguard: cancelling compaction with no real conversation messages to summarize.

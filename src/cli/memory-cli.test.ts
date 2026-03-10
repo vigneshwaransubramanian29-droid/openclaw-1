@@ -201,6 +201,43 @@ describe("memory cli", () => {
     expect(close).toHaveBeenCalled();
   });
 
+  it("prints sqlite sidecar status when available", async () => {
+    const close = vi.fn(async () => {});
+    mockManager({
+      probeVectorAvailability: vi.fn(async () => true),
+      status: () =>
+        makeMemoryStatus({
+          custom: {
+            sqliteMemory: {
+              enabled: true,
+              mode: "sidecar",
+              dbPath: "/tmp/memory-structured.sqlite",
+              degraded: false,
+              fallback: "existing",
+              fallbackState: "existing",
+              rowCounts: { sessions: 2, messages: 4, facts: 1, tasks: 1, summaries: 1 },
+              lastSearchMs: 12,
+              lastSyncMs: 34,
+              lastWriteMs: 21,
+            },
+          },
+        }),
+      close,
+    });
+
+    const log = spyRuntimeLogs();
+    await runMemoryCli(["status"]);
+
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("SQLite memory: ready"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("SQLite mode: sidecar"));
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("SQLite rows: sessions 2, messages 4, facts 1, tasks 1, summaries 1"),
+    );
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("SQLite latency: search 12ms"),
+    );
+  });
+
   it("resolves configured memory SecretRefs through gateway snapshot", async () => {
     loadConfig.mockReturnValue({
       agents: {

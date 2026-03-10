@@ -99,4 +99,24 @@ describe("startGatewayMemoryBackend", () => {
     );
     expect(log.warn).not.toHaveBeenCalled();
   });
+
+  it("initializes builtin memory when the sqlite sidecar is enabled", async () => {
+    const cfg = {
+      agents: {
+        defaults: { memorySearch: { enabled: true, sqliteMemory: { enabled: true } } },
+        list: [{ id: "main", default: true }],
+      },
+      memory: { backend: "builtin" },
+    } as OpenClawConfig;
+    const log = createGatewayLogMock();
+    getMemorySearchManagerMock.mockResolvedValue({ manager: { search: vi.fn() } });
+
+    await startGatewayMemoryBackend({ cfg, log });
+
+    expect(getMemorySearchManagerMock).toHaveBeenCalledTimes(1);
+    expect(getMemorySearchManagerMock).toHaveBeenCalledWith({ cfg, agentId: "main" });
+    expect(log.info).toHaveBeenCalledWith(
+      'sqlite sidecar memory startup initialization armed for agent "main"',
+    );
+  });
 });

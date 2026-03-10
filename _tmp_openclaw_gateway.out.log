@@ -1,0 +1,19 @@
+2026-03-10T00:32:17.442+05:30 [canvas] host mounted at http://127.0.0.1:18789/__openclaw__/canvas/ (root C:\Users\Shali\.openclaw\canvas)
+2026-03-10T00:32:17.896+05:30 [heartbeat] started
+2026-03-10T00:32:17.908+05:30 [health-monitor] started (interval: 300s, startup-grace: 60s, channel-connect-grace: 120s)
+2026-03-10T00:32:17.916+05:30 [gateway] agent model: openai-codex/gpt-5.3-codex
+2026-03-10T00:32:17.920+05:30 [gateway] listening on ws://127.0.0.1:18789, ws://[::1]:18789 (PID 30700)
+2026-03-10T00:32:17.926+05:30 [gateway] log file: \tmp\openclaw\openclaw-2026-03-10.log
+2026-03-10T00:32:18.222+05:30 [browser/server] Browser control listening on http://127.0.0.1:18791/ (auth=token)
+2026-03-10T00:32:18.251+05:30 [whatsapp] [default] starting provider (+919487683600)
+2026-03-10T00:32:18.345+05:30 [gateway] sqlite sidecar memory startup initialization armed for agent "main"
+2026-03-10T00:32:18.363+05:30 [gateway] sqlite sidecar memory startup initialization armed for agent "planning"
+2026-03-10T00:32:18.378+05:30 [gateway] sqlite sidecar memory startup initialization armed for agent "coding"
+2026-03-10T00:32:18.395+05:30 [gateway] sqlite sidecar memory startup initialization armed for agent "executor"
+2026-03-10T00:32:18.411+05:30 [gateway] sqlite sidecar memory startup initialization armed for agent "memory"
+2026-03-10T00:32:18.429+05:30 [gateway] sqlite sidecar memory startup initialization armed for agent "local"
+2026-03-10T00:32:19.237+05:30 [telegram] [default] starting provider (@Aegon_vickybot)
+2026-03-10T00:32:19.249+05:30 [telegram] autoSelectFamily=true (default-node22)
+2026-03-10T00:32:19.253+05:30 [telegram] dnsResultOrder=ipv4first (default-node22)
+2026-03-10T00:32:21.022+05:30 [whatsapp] Listening for personal WhatsApp inbound messages.
+2026-03-10T00:32:30.697+05:30 [ws] webchat connected conn=df80bd51-49d9-4df1-850f-2993278f1cc9 remote=127.0.0.1 client=openclaw-control-ui webchat vdev

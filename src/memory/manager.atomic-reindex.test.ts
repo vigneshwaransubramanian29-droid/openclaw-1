@@ -83,4 +83,49 @@ describe("memory manager atomic reindex", () => {
     const afterStatus = manager.status();
     expect(afterStatus.chunks).toBeGreaterThan(0);
   });
+
+  it("retries index swap when sqlite rename is transiently busy", async () => {
+    const cfg = {
+      agents: {
+        defaults: {
+          workspace: workspaceDir,
+          memorySearch: {
+            provider: "openai",
+            model: "mock-embed",
+            store: { path: indexPath },
+            cache: { enabled: false },
+            chunking: { tokens: 4000, overlap: 0 },
+            sync: { watch: false, onSessionStart: false, onSearch: false },
+          },
+        },
+        list: [{ id: "main", default: true }],
+      },
+    } as OpenClawConfig;
+
+    manager = await getRequiredMemoryIndexManager({ cfg, agentId: "main" });
+    await manager.sync({ force: true });
+
+    const realRename = fs.rename.bind(fs);
+    let injectedBusy = false;
+    const renameSpy = vi.spyOn(fs, "rename").mockImplementation(async (source, target) => {
+      const src = String(source);
+      const dst = String(target);
+      if (!injectedBusy && src === indexPath && dst.startsWith(`${indexPath}.backup-`)) {
+        injectedBusy = true;
+        const err = new Error(
+          `resource busy or locked, rename '${src}' -> '${dst}'`,
+        ) as NodeJS.ErrnoException;
+        err.code = "EBUSY";
+        throw err;
+      }
+      await realRename(source, target);
+    });
+
+    try {
+      await expect(manager.sync({ force: true })).resolves.toBeUndefined();
+      expect(injectedBusy).toBe(true);
+    } finally {
+      renameSpy.mockRestore();
+    }
+  });
 });

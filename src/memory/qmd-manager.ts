@@ -169,9 +169,9 @@ export class QmdMemoryManager implements MemorySearchManager {
   private readonly maxQmdOutputChars = MAX_QMD_OUTPUT_CHARS;
   private readonly sessionExporter: SessionExporterConfig | null;
   private updateTimer: NodeJS.Timeout | null = null;
-  private pendingUpdate: Promise<void> | null = null;
-  private queuedForcedUpdate: Promise<void> | null = null;
-  private queuedForcedRuns = 0;
+  private inFlightRun: Promise<void> | null = null;
+  private pendingForcedRerun = false;
+  private pendingForcedRunPromise: Promise<void> | null = null;
   private closed = false;
   private db: SqliteDatabase | null = null;
   private lastUpdateAt: number | null = null;
@@ -966,9 +966,9 @@ export class QmdMemoryManager implements MemorySearchManager {
       clearInterval(this.updateTimer);
       this.updateTimer = null;
     }
-    this.queuedForcedRuns = 0;
-    await this.pendingUpdate?.catch(() => undefined);
-    await this.queuedForcedUpdate?.catch(() => undefined);
+    this.pendingForcedRerun = false;
+    await this.inFlightRun?.catch(() => undefined);
+    await this.pendingForcedRunPromise?.catch(() => undefined);
     if (this.db) {
       this.db.close();
       this.db = null;
@@ -983,17 +983,17 @@ export class QmdMemoryManager implements MemorySearchManager {
     if (this.closed) {
       return;
     }
-    if (this.pendingUpdate) {
+    if (this.inFlightRun) {
       if (force) {
-        return this.enqueueForcedUpdate(reason);
+        return await this.enqueueForcedUpdate(reason);
       }
-      return this.pendingUpdate;
+      return await this.inFlightRun;
     }
-    if (this.queuedForcedUpdate && !opts?.fromForcedQueue) {
+    if (this.pendingForcedRunPromise && !opts?.fromForcedQueue) {
       if (force) {
-        return this.enqueueForcedUpdate(reason);
+        return await this.enqueueForcedUpdate(reason);
       }
-      return this.queuedForcedUpdate;
+      return await this.pendingForcedRunPromise;
     }
     if (this.shouldSkipUpdate(force)) {
       return;
@@ -1021,10 +1021,10 @@ export class QmdMemoryManager implements MemorySearchManager {
       this.lastUpdateAt = Date.now();
       this.docPathCache.clear();
     };
-    this.pendingUpdate = run().finally(() => {
-      this.pendingUpdate = null;
+    this.inFlightRun = run().finally(() => {
+      this.inFlightRun = null;
     });
-    await this.pendingUpdate;
+    await this.inFlightRun;
   }
 
   private async runQmdUpdateWithRetry(reason: string): Promise<void> {
@@ -1105,19 +1105,20 @@ export class QmdMemoryManager implements MemorySearchManager {
   }
 
   private enqueueForcedUpdate(reason: string): Promise<void> {
-    this.queuedForcedRuns += 1;
-    if (!this.queuedForcedUpdate) {
-      this.queuedForcedUpdate = this.drainForcedUpdates(reason).finally(() => {
-        this.queuedForcedUpdate = null;
+    this.pendingForcedRerun = true;
+    if (!this.pendingForcedRunPromise) {
+      this.pendingForcedRunPromise = this.drainForcedUpdates(reason).finally(() => {
+        this.pendingForcedRunPromise = null;
       });
     }
-    return this.queuedForcedUpdate;
+    return this.pendingForcedRunPromise;
   }
 
   private async drainForcedUpdates(reason: string): Promise<void> {
-    await this.pendingUpdate?.catch(() => undefined);
-    while (!this.closed && this.queuedForcedRuns > 0) {
-      this.queuedForcedRuns -= 1;
+    await this.inFlightRun?.catch(() => undefined);
+    while (!this.closed && this.pendingForcedRerun) {
+      // Coalesce any number of force requests while the current run is active into one rerun.
+      this.pendingForcedRerun = false;
       await this.runUpdate(`${reason}:queued`, true, { fromForcedQueue: true });
     }
   }
@@ -1418,6 +1419,7 @@ export class QmdMemoryManager implements MemorySearchManager {
     if (this.db) {
       return this.db;
     }
+    this.ensureIndexWalMode();
     const { DatabaseSync } = requireNodeSqlite();
     this.db = new DatabaseSync(this.indexPath, { readOnly: true });
     // busy_timeout is per-connection; set it on every open so concurrent
@@ -1427,6 +1429,23 @@ export class QmdMemoryManager implements MemorySearchManager {
     // In WAL mode readers rarely block, so 1 s is a safe upper bound.
     this.db.exec("PRAGMA busy_timeout = 1000");
     return this.db;
+  }
+
+  private ensureIndexWalMode(): void {
+    const { DatabaseSync } = requireNodeSqlite();
+    let writable: SqliteDatabase | null = null;
+    try {
+      writable = new DatabaseSync(this.indexPath);
+      writable.exec("PRAGMA journal_mode = WAL");
+      writable.exec("PRAGMA busy_timeout = 5000");
+    } catch (err) {
+      // Best-effort: read paths should continue even if WAL cannot be enabled.
+      log.debug(`qmd index WAL enable skipped: ${String(err)}`);
+    } finally {
+      try {
+        writable?.close();
+      } catch {}
+    }
   }
 
   private async exportSessions(): Promise<void> {
@@ -1946,7 +1965,7 @@ export class QmdMemoryManager implements MemorySearchManager {
   }
 
   private async waitForPendingUpdateBeforeSearch(): Promise<void> {
-    const pending = this.pendingUpdate;
+    const pending = this.inFlightRun;
     if (!pending) {
       return;
     }

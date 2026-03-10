@@ -199,6 +199,7 @@ export const dispatchTelegramMessage = async ({
   const mediaLocalRoots = getAgentScopedMediaLocalRoots(cfg, route.agentId);
   const archivedAnswerPreviews: ArchivedPreview[] = [];
   const archivedReasoningPreviewIds: number[] = [];
+  let laneSystemActivated = false;
   const createDraftLane = (laneName: LaneName, enabled: boolean): DraftLaneState => {
     const stream = enabled
       ? createTelegramDraftStream({
@@ -237,8 +238,8 @@ export const dispatchTelegramMessage = async ({
     };
   };
   const lanes: Record<LaneName, DraftLaneState> = {
-    answer: createDraftLane("answer", canStreamAnswerDraft),
-    reasoning: createDraftLane("reasoning", canStreamReasoningDraft),
+    answer: createDraftLane("answer", false),
+    reasoning: createDraftLane("reasoning", false),
   };
   // Active preview lifecycle answers "can this current preview still be
   // finalized?" Cleanup retention is separate so archived-preview decisions do
@@ -251,8 +252,18 @@ export const dispatchTelegramMessage = async ({
     answer: false,
     reasoning: false,
   };
-  const answerLane = lanes.answer;
-  const reasoningLane = lanes.reasoning;
+  let answerLane = lanes.answer;
+  let reasoningLane = lanes.reasoning;
+  const activateLaneSystem = () => {
+    if (laneSystemActivated) {
+      return;
+    }
+    laneSystemActivated = true;
+    lanes.answer = createDraftLane("answer", canStreamAnswerDraft);
+    lanes.reasoning = createDraftLane("reasoning", canStreamReasoningDraft);
+    answerLane = lanes.answer;
+    reasoningLane = lanes.reasoning;
+  };
   let splitReasoningOnNextStream = false;
   let skipNextAnswerMessageStartRotation = false;
   let draftLaneEventQueue = Promise.resolve();
@@ -284,6 +295,35 @@ export const dispatchTelegramMessage = async ({
       suppressedReasoningOnly:
         Boolean(split.reasoningText) && suppressReasoning && !split.answerText,
     };
+  };
+  const isPlainFinalFastPath = (params: {
+    payload: ReplyPayload;
+    infoKind: string;
+    split: SplitLaneSegmentsResult;
+  }) => {
+    if (params.infoKind !== "final" || laneSystemActivated) {
+      return false;
+    }
+    if (params.payload.isError) {
+      return false;
+    }
+    if (
+      params.payload.mediaUrl ||
+      (Array.isArray(params.payload.mediaUrls) && params.payload.mediaUrls.length > 0)
+    ) {
+      return false;
+    }
+    const text = typeof params.payload.text === "string" ? params.payload.text : "";
+    if (!text.trim()) {
+      return false;
+    }
+    if (params.split.suppressedReasoningOnly) {
+      return false;
+    }
+    if (params.split.segments.length !== 1 || params.split.segments[0]?.lane !== "answer") {
+      return false;
+    }
+    return params.split.segments[0]?.text === text;
   };
   const resetDraftLaneState = (lane: DraftLaneState) => {
     lane.lastPartialText = "";
@@ -556,6 +596,25 @@ export const dispatchTelegramMessage = async ({
           const split = splitTextIntoLaneSegments(payload.text);
           const segments = split.segments;
           const hasMedia = Boolean(payload.mediaUrl) || (payload.mediaUrls?.length ?? 0) > 0;
+          if (
+            isPlainFinalFastPath({
+              payload,
+              infoKind: info.kind,
+              split,
+            })
+          ) {
+            await sendPayload(payload);
+            reasoningStepState.resetForNextStep();
+            return;
+          }
+          if (
+            !laneSystemActivated &&
+            (info.kind !== "final" ||
+              segments.some((segment) => segment.lane === "reasoning") ||
+              hasMedia)
+          ) {
+            activateLaneSystem();
+          }
 
           const flushBufferedFinalAnswer = async () => {
             const buffered = reasoningStepState.takeBufferedFinalAnswer();
@@ -662,15 +721,17 @@ export const dispatchTelegramMessage = async ({
         skillFilter,
         disableBlockStreaming,
         onPartialReply:
-          answerLane.stream || reasoningLane.stream
+          canStreamAnswerDraft || canStreamReasoningDraft
             ? (payload) =>
                 enqueueDraftLaneEvent(async () => {
+                  activateLaneSystem();
                   await ingestDraftLaneSegments(payload.text);
                 })
             : undefined,
-        onReasoningStream: reasoningLane.stream
+        onReasoningStream: canStreamReasoningDraft
           ? (payload) =>
               enqueueDraftLaneEvent(async () => {
+                activateLaneSystem();
                 // Split between reasoning blocks only when the next reasoning
                 // stream starts. Splitting at reasoning-end can orphan the active
                 // preview and cause duplicate reasoning sends on reasoning final.
@@ -682,9 +743,10 @@ export const dispatchTelegramMessage = async ({
                 await ingestDraftLaneSegments(payload.text);
               })
           : undefined,
-        onAssistantMessageStart: answerLane.stream
+        onAssistantMessageStart: canStreamAnswerDraft
           ? () =>
               enqueueDraftLaneEvent(async () => {
+                activateLaneSystem();
                 reasoningStepState.resetForNextStep();
                 if (skipNextAnswerMessageStartRotation) {
                   skipNextAnswerMessageStartRotation = false;
@@ -701,9 +763,10 @@ export const dispatchTelegramMessage = async ({
                 retainPreviewOnCleanupByLane.answer = false;
               })
           : undefined,
-        onReasoningEnd: reasoningLane.stream
+        onReasoningEnd: canStreamReasoningDraft
           ? () =>
               enqueueDraftLaneEvent(async () => {
+                activateLaneSystem();
                 // Split when/if a later reasoning block begins.
                 splitReasoningOnNextStream = reasoningLane.hasStreamedMessage;
               })

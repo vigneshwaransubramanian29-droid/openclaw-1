@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveMemorySearchConfig } from "./memory-search.js";
 
 const asConfig = (cfg: OpenClawConfig): OpenClawConfig => cfg;
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("memory search config", () => {
   function configWithDefaultProvider(
@@ -178,6 +182,42 @@ describe("memory search config", () => {
       deltaBytes: 100000,
       deltaMessages: 50,
     });
+  });
+
+  it("defaults sqlite sidecar to disabled with the structured path template", () => {
+    const cfg = asConfig({
+      agents: {
+        defaults: {
+          memorySearch: {
+            provider: "openai",
+          },
+        },
+      },
+    });
+    const resolved = resolveMemorySearchConfig(cfg, "main");
+    expect(resolved?.sqliteMemory.enabled).toBe(false);
+    expect(resolved?.sqliteMemory.mode).toBe("sidecar");
+    expect(resolved?.sqliteMemory.fallback).toBe("existing");
+    expect(resolved?.sqliteMemory.path).toContain("main.structured.sqlite");
+  });
+
+  it("applies sqlite sidecar env overrides", () => {
+    vi.stubEnv("ENABLE_SQLITE_MEMORY", "true");
+    vi.stubEnv("SQLITE_MEMORY_MODE", "sidecar");
+    vi.stubEnv("SQLITE_MEMORY_FALLBACK", "existing");
+    const cfg = asConfig({
+      agents: {
+        defaults: {
+          memorySearch: {
+            provider: "openai",
+          },
+        },
+      },
+    });
+    const resolved = resolveMemorySearchConfig(cfg, "main");
+    expect(resolved?.sqliteMemory.enabled).toBe(true);
+    expect(resolved?.sqliteMemory.mode).toBe("sidecar");
+    expect(resolved?.sqliteMemory.fallback).toBe("existing");
   });
 
   it("merges remote defaults with agent overrides", () => {

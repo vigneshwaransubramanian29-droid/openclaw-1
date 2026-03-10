@@ -27,6 +27,7 @@ import {
   setMessageReactionSpy,
   setMyCommandsSpy,
   throttlerSpy,
+  telegramChildLogger,
   useSpy,
 } from "./bot.create-telegram-bot.test-harness.js";
 import { createTelegramBot, getTelegramSequentialKey } from "./bot.js";
@@ -1971,6 +1972,113 @@ describe("createTelegramBot", () => {
       const payload = replySpy.mock.calls[0]?.[0] as { RawBody?: string };
       expect(payload.RawBody).toContain(part1.slice(0, 32));
       expect(payload.RawBody).toContain(part2.slice(0, 32));
+    } finally {
+      useRealTime();
+    }
+  });
+  it("keeps the global flush queue running after a media-group task failure", async () => {
+    loadConfig.mockReturnValue({
+      channels: {
+        telegram: {
+          groupPolicy: "open",
+          groups: {
+            "-100777111222": {
+              enabled: true,
+              requireMention: false,
+            },
+          },
+        },
+      },
+    });
+
+    const debugCallStart = telegramChildLogger.debug.mock.calls.length;
+    telegramChildLogger.debug.mockImplementationOnce(() => {
+      throw new Error("flush debug failure");
+    });
+
+    useFrozenTime("2026-02-20T00:00:00.000Z");
+    try {
+      createTelegramBot({
+        token: "tok",
+        testTimings: TELEGRAM_TEST_TIMINGS,
+      });
+      const handler = getOnHandler("channel_post") as (
+        ctx: Record<string, unknown>,
+      ) => Promise<void>;
+
+      const firstPart = "C".repeat(4050);
+      const secondPart = "D".repeat(50);
+      await handler({
+        channelPost: {
+          chat: { id: -100777111222, type: "channel", title: "Wake Channel" },
+          message_id: 601,
+          date: 1736380810,
+          text: firstPart,
+        },
+        me: { username: "openclaw_bot" },
+        getFile: async () => ({}),
+      });
+      await handler({
+        channelPost: {
+          chat: { id: -100777111222, type: "channel", title: "Wake Channel" },
+          message_id: 602,
+          date: 1736380811,
+          text: secondPart,
+        },
+        me: { username: "openclaw_bot" },
+        getFile: async () => ({}),
+      });
+      await vi.advanceTimersByTimeAsync(TELEGRAM_TEST_TIMINGS.textFragmentGapMs + 100);
+
+      const thirdPart = "E".repeat(4050);
+      const fourthPart = "F".repeat(50);
+      await handler({
+        channelPost: {
+          chat: { id: -100777111222, type: "channel", title: "Wake Channel" },
+          message_id: 701,
+          date: 1736380820,
+          text: thirdPart,
+        },
+        me: { username: "openclaw_bot" },
+        getFile: async () => ({}),
+      });
+      await handler({
+        channelPost: {
+          chat: { id: -100777111222, type: "channel", title: "Wake Channel" },
+          message_id: 702,
+          date: 1736380821,
+          text: fourthPart,
+        },
+        me: { username: "openclaw_bot" },
+        getFile: async () => ({}),
+      });
+      await vi.advanceTimersByTimeAsync(TELEGRAM_TEST_TIMINGS.textFragmentGapMs + 100);
+
+      expect(replySpy).toHaveBeenCalledTimes(2);
+      const secondPayload = replySpy.mock.calls[1]?.[0] as { RawBody?: string };
+      expect(secondPayload.RawBody).toContain(thirdPart.slice(0, 32));
+      expect(secondPayload.RawBody).toContain(fourthPart.slice(0, 32));
+
+      const flushDebugCalls = telegramChildLogger.debug.mock.calls
+        .slice(debugCallStart)
+        .filter(
+          (call) => call[1] === "telegram flush queue task",
+        );
+      expect(flushDebugCalls.length).toBeGreaterThanOrEqual(2);
+      const lastDebugMeta = flushDebugCalls.at(-1)?.[0] as
+        | {
+            stats?: {
+              queued?: number;
+              failed?: number;
+              succeeded?: number;
+              maxDurationMs?: number;
+            };
+          }
+        | undefined;
+      expect(lastDebugMeta?.stats?.queued ?? 0).toBeGreaterThanOrEqual(2);
+      expect(lastDebugMeta?.stats?.failed ?? 0).toBeGreaterThanOrEqual(1);
+      expect(lastDebugMeta?.stats?.succeeded ?? 0).toBeGreaterThanOrEqual(1);
+      expect(lastDebugMeta?.stats?.maxDurationMs ?? -1).toBeGreaterThanOrEqual(0);
     } finally {
       useRealTime();
     }

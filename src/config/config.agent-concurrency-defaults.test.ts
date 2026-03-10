@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_AGENT_MAX_CONCURRENT,
   DEFAULT_SUBAGENT_MAX_CONCURRENT,
+  DEFAULT_SUBAGENT_RUN_TIMEOUT_SECONDS,
   resolveAgentMaxConcurrent,
   resolveSubagentMaxConcurrent,
+  resolveSubagentRunTimeoutSeconds,
 } from "./agent-limits.js";
 import { loadConfig } from "./config.js";
 import { withTempHome, writeOpenClawConfig } from "./test-helpers.js";
@@ -13,6 +15,7 @@ describe("agent concurrency defaults", () => {
   it("resolves defaults when unset", () => {
     expect(resolveAgentMaxConcurrent({})).toBe(DEFAULT_AGENT_MAX_CONCURRENT);
     expect(resolveSubagentMaxConcurrent({})).toBe(DEFAULT_SUBAGENT_MAX_CONCURRENT);
+    expect(resolveSubagentRunTimeoutSeconds({})).toBe(DEFAULT_SUBAGENT_RUN_TIMEOUT_SECONDS);
   });
 
   it("clamps invalid values to at least 1", () => {
@@ -52,6 +55,9 @@ describe("agent concurrency defaults", () => {
 
       expect(cfg.agents?.defaults?.maxConcurrent).toBe(DEFAULT_AGENT_MAX_CONCURRENT);
       expect(cfg.agents?.defaults?.subagents?.maxConcurrent).toBe(DEFAULT_SUBAGENT_MAX_CONCURRENT);
+      expect(cfg.agents?.defaults?.subagents?.runTimeoutSeconds).toBe(
+        DEFAULT_SUBAGENT_RUN_TIMEOUT_SECONDS,
+      );
     });
   });
 });

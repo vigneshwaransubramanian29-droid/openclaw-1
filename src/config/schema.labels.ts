@@ -358,6 +358,28 @@ export const FIELD_LABELS: Record<string, string> = {
     "Memory Search Temporal Decay Half-life (Days)",
   "agents.defaults.memorySearch.cache.enabled": "Memory Search Embedding Cache",
   "agents.defaults.memorySearch.cache.maxEntries": "Memory Search Embedding Cache Max Entries",
+  "agents.defaults.memorySearch.sqliteMemory.enabled": "SQLite Memory Sidecar",
+  "agents.defaults.memorySearch.sqliteMemory.mode": "SQLite Memory Mode",
+  "agents.defaults.memorySearch.sqliteMemory.fallback": "SQLite Memory Fallback",
+  "agents.defaults.memorySearch.sqliteMemory.path": "SQLite Memory Path",
+  "agents.defaults.memorySearch.sqliteMemory.retrieval.maxResults":
+    "SQLite Memory Max Results",
+  "agents.defaults.memorySearch.sqliteMemory.retrieval.sessionLimit":
+    "SQLite Memory Session Limit",
+  "agents.defaults.memorySearch.sqliteMemory.retrieval.recentLimit":
+    "SQLite Memory Recent Limit",
+  "agents.defaults.memorySearch.sqliteMemory.retrieval.factTaskLimit":
+    "SQLite Memory Fact/Task Limit",
+  "agents.defaults.memorySearch.sqliteMemory.retrieval.summaryLimit":
+    "SQLite Memory Summary Limit",
+  "agents.defaults.memorySearch.sqliteMemory.retrieval.recentWindowDays":
+    "SQLite Memory Recent Window (Days)",
+  "agents.defaults.memorySearch.sqliteMemory.retention.messageDays":
+    "SQLite Memory Retention (Days)",
+  "agents.defaults.memorySearch.sqliteMemory.retention.maxMessagesPerSession":
+    "SQLite Memory Max Messages Per Session",
+  "agents.defaults.memorySearch.sqliteMemory.retention.summaryMaxChars":
+    "SQLite Memory Summary Max Chars",
   memory: "Memory",
   "memory.backend": "Memory Backend",
   "memory.citations": "Memory Citations Mode",

@@ -1,7 +1,9 @@
 import type { OpenClawConfig } from "../config/config.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { resolveMemorySearchConfig } from "../agents/memory-search.js";
 import type { ResolvedQmdConfig } from "./backend-config.js";
 import { resolveMemoryBackendConfig } from "./backend-config.js";
+import { SqliteMemorySidecarManager } from "./sqlite-sidecar.js";
 import type {
   MemoryEmbeddingProbeResult,
   MemorySearchManager,
@@ -10,6 +12,7 @@ import type {
 
 const log = createSubsystemLogger("memory");
 const QMD_MANAGER_CACHE = new Map<string, MemorySearchManager>();
+const SQLITE_SIDECAR_MANAGER_CACHE = new Map<string, MemorySearchManager>();
 let managerRuntimePromise: Promise<typeof import("./manager-runtime.js")> | null = null;
 
 function loadManagerRuntime() {
@@ -28,6 +31,7 @@ export async function getMemorySearchManager(params: {
   purpose?: "default" | "status";
 }): Promise<MemorySearchManagerResult> {
   const resolved = resolveMemoryBackendConfig(params);
+  const sidecarSettings = resolveMemorySearchConfig(params.cfg, params.agentId)?.sqliteMemory;
   if (resolved.backend === "qmd" && resolved.qmd) {
     const statusOnly = params.purpose === "status";
     let cacheKey: string | undefined;
@@ -67,7 +71,13 @@ export async function getMemorySearchManager(params: {
         if (cacheKey) {
           QMD_MANAGER_CACHE.set(cacheKey, wrapper);
         }
-        return { manager: wrapper };
+        return {
+          manager: await maybeWrapWithSqliteSidecar({
+            ...params,
+            manager: wrapper,
+            sidecarSettings,
+          }),
+        };
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -78,7 +88,13 @@ export async function getMemorySearchManager(params: {
   try {
     const { MemoryIndexManager } = await loadManagerRuntime();
     const manager = await MemoryIndexManager.get(params);
-    return { manager };
+    return {
+      manager: await maybeWrapWithSqliteSidecar({
+        ...params,
+        manager,
+        sidecarSettings,
+      }),
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { manager: null, error: message };
@@ -88,6 +104,8 @@ export async function getMemorySearchManager(params: {
 export async function closeAllMemorySearchManagers(): Promise<void> {
   const managers = Array.from(QMD_MANAGER_CACHE.values());
   QMD_MANAGER_CACHE.clear();
+  const sidecarManagers = Array.from(SQLITE_SIDECAR_MANAGER_CACHE.values());
+  SQLITE_SIDECAR_MANAGER_CACHE.clear();
   for (const manager of managers) {
     try {
       await manager.close?.();
@@ -95,10 +113,70 @@ export async function closeAllMemorySearchManagers(): Promise<void> {
       log.warn(`failed to close qmd memory manager: ${String(err)}`);
     }
   }
+  for (const manager of sidecarManagers) {
+    if (managers.includes(manager)) {
+      continue;
+    }
+    try {
+      await manager.close?.();
+    } catch (err) {
+      log.warn(`failed to close sqlite sidecar memory manager: ${String(err)}`);
+    }
+  }
   if (managerRuntimePromise !== null) {
     const { closeAllMemoryIndexManagers } = await loadManagerRuntime();
     await closeAllMemoryIndexManagers();
   }
+}
+
+async function maybeWrapWithSqliteSidecar(params: {
+  cfg: OpenClawConfig;
+  agentId: string;
+  purpose?: "default" | "status";
+  manager: MemorySearchManager | null;
+  sidecarSettings:
+    | ReturnType<typeof resolveMemorySearchConfig>["sqliteMemory"]
+    | undefined;
+}): Promise<MemorySearchManager | null> {
+  if (!params.manager || !params.sidecarSettings?.enabled) {
+    return params.manager;
+  }
+  const status = params.manager.status();
+  const workspaceDir = status.workspaceDir?.trim();
+  if (!workspaceDir) {
+    return params.manager;
+  }
+  if (params.purpose === "status") {
+    return new SqliteMemorySidecarManager({
+      agentId: params.agentId,
+      workspaceDir,
+      settings: resolveMemorySearchConfig(params.cfg, params.agentId)!,
+      delegate: params.manager,
+      purpose: "status",
+    });
+  }
+  const cacheKey = `${params.agentId}:${workspaceDir}:${JSON.stringify({
+    backend: resolveMemoryBackendConfig({ cfg: params.cfg, agentId: params.agentId }),
+    sqliteMemory: params.sidecarSettings,
+  })}`;
+  const cached = SQLITE_SIDECAR_MANAGER_CACHE.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+  const wrapper = new SqliteMemorySidecarManager({
+    agentId: params.agentId,
+    workspaceDir,
+    settings: resolveMemorySearchConfig(params.cfg, params.agentId)!,
+    delegate: params.manager,
+    purpose: "full",
+    onClose: () => {
+      if (SQLITE_SIDECAR_MANAGER_CACHE.get(cacheKey) === wrapper) {
+        SQLITE_SIDECAR_MANAGER_CACHE.delete(cacheKey);
+      }
+    },
+  });
+  SQLITE_SIDECAR_MANAGER_CACHE.set(cacheKey, wrapper);
+  return wrapper;
 }
 
 class FallbackMemoryManager implements MemorySearchManager {
