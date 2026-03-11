@@ -107,10 +107,42 @@ function normalizeTaskInput(input) {
   };
 }
 
-function aggregateStatus(results) {
-  const statuses = new Set((results || []).map((result) => result?.status).filter(Boolean));
+function normalizeAgentId(agentId) {
+  return String(agentId || "")
+    .replace(/\[.*\]/g, "")
+    .trim();
+}
+
+function isAdvisoryNeedsMoreInfo(entry, effectiveRuns) {
+  if (entry?.result?.status !== AGENT_STATUSES.NEEDS_MORE_INFO) {
+    return false;
+  }
+  if (normalizeAgentId(entry.agentId) !== "search") {
+    return false;
+  }
+  return effectiveRuns.some(
+    (candidate) =>
+      normalizeAgentId(candidate?.agentId) !== "search" &&
+      candidate?.result?.status === AGENT_STATUSES.SUCCESS,
+  );
+}
+
+function aggregateStatus(effectiveRuns = []) {
+  const blockingRuns = effectiveRuns.filter(
+    (entry) => !isAdvisoryNeedsMoreInfo(entry, effectiveRuns),
+  );
+  const statuses = new Set(blockingRuns.map((entry) => entry?.result?.status).filter(Boolean));
   if (statuses.has(AGENT_STATUSES.FAILED)) {return AGENT_STATUSES.FAILED;}
+  if (statuses.has(AGENT_STATUSES.SUCCESS)) {return AGENT_STATUSES.SUCCESS;}
   if (statuses.has(AGENT_STATUSES.NEEDS_MORE_INFO)) {return AGENT_STATUSES.NEEDS_MORE_INFO;}
+
+  const fallbackStatuses = new Set(
+    effectiveRuns.map((entry) => entry?.result?.status).filter(Boolean),
+  );
+  if (fallbackStatuses.has(AGENT_STATUSES.SUCCESS)) {return AGENT_STATUSES.SUCCESS;}
+  if (fallbackStatuses.has(AGENT_STATUSES.NEEDS_MORE_INFO)) {
+    return AGENT_STATUSES.NEEDS_MORE_INFO;
+  }
   return AGENT_STATUSES.SUCCESS;
 }
 
@@ -430,8 +462,7 @@ export class OrchestratorAgent {
 
   #mergeResults(route, pipelineRuns, contextMeta, mode) {
     const effectiveRuns = latestLogicalRuns(pipelineRuns || []);
-    const results = effectiveRuns.map((entry) => entry.result);
-    const status = aggregateStatus(results);
+    const status = aggregateStatus(effectiveRuns);
     const citations = dedupeBy(
       (pipelineRuns || []).flatMap((entry) => entry.result.citations || []),
       (citation) => citation.url?.toLowerCase(),
