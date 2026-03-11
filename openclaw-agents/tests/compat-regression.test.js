@@ -90,5 +90,54 @@ test("compat mode preserves single-agent legacy path while multi-agent can be en
   assert.ok(messageBus.trace.length >= 3);
   assert.ok(multiResult.artifacts.length >= 3);
 
-  if (fs.existsSync(storePath)) fs.unlinkSync(storePath);
+  if (fs.existsSync(storePath)) {fs.unlinkSync(storePath);}
+});
+
+test("degraded direct-only mode preserves current direct wrapper behavior", async () => {
+  const storePath = makeTempStorePath("degraded-direct");
+  const store = new WorkspaceStore({ filePath: storePath, maxEntries: 100 });
+  const router = new TaskRouter({
+    keywords: {
+      latest: ["latest"],
+      build: ["build", "implement"],
+      docs: ["docs"],
+      debug: ["error"],
+      test: ["test"],
+    },
+  });
+  const contextManager = new ContextManager({
+    workspaceStore: store,
+    defaultOrchestratorBudget: 2500,
+  });
+
+  const registry = new SubAgentRegistry();
+  for (const id of ["planner", "search", "code", "test", "docs", "debug"]) {
+    registry.register(id, new DummyAgent(id));
+  }
+  const messageBus = new MessageBus({ registry, directOnly: true });
+  const orchestrator = new OrchestratorAgent({
+    taskRouter: router,
+    contextManager,
+    messageBus,
+    workspaceStore: store,
+    compatMode: false,
+    retryUntilSuccess: true,
+    defaultPipeline: ["planner", "search", "code", "test", "docs"],
+  });
+
+  const result = await orchestrator.run(
+    {
+      task: "build latest feature with tests and docs",
+      history: [],
+      constraints: [],
+      mode: "multi-agent",
+    },
+    { enableMultiAgent: true },
+  );
+
+  assert.equal(messageBus.isDirectOnly(), true);
+  assert.equal(result.status, "success");
+  assert.ok(messageBus.trace.length >= 3);
+
+  if (fs.existsSync(storePath)) {fs.unlinkSync(storePath);}
 });

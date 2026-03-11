@@ -8,6 +8,13 @@ import { ContextManager } from "./core/context-manager.js";
 import { MessageBus } from "./core/message-bus.js";
 import { ToolProxy } from "./core/tool-proxy.js";
 import { OrchestratorAgent } from "./core/orchestrator-agent.js";
+import { RuntimeAdapter } from "./core/runtime-adapter.js";
+import { TaskJournal } from "./core/task-journal.js";
+import { LifecycleReducer } from "./core/lifecycle-reducer.js";
+import { QueueManager } from "./core/queue-manager.js";
+import { RecoverySweeper } from "./core/recovery-sweeper.js";
+import { ProgressNotifier } from "./core/progress-notifier.js";
+import { HealthTracker } from "./core/health-tracker.js";
 import { WebSearchService } from "./search/web-search-service.js";
 import { MockSearchProvider } from "./search/providers/mock-provider.js";
 import { OpenClawToolProvider } from "./search/providers/openclaw-tool-provider.js";
@@ -22,7 +29,7 @@ import { SearchAgent } from "./agents/search-agent.js";
 import { DebugAgent } from "./agents/debug-agent.js";
 
 function bool(value, fallback = false) {
-  if (value === undefined || value === null) return fallback;
+  if (value === undefined || value === null) {return fallback;}
   return !!value;
 }
 
@@ -72,7 +79,7 @@ function makeAgentMeta(agentConfig, agentId) {
   };
 }
 
-export function createSystem(options = {}) {
+export async function createSystem(options = {}) {
   const currentFile = fileURLToPath(import.meta.url);
   const srcDir = path.dirname(currentFile);
   const projectRoot = options.projectRoot || path.resolve(srcDir, "..");
@@ -84,6 +91,7 @@ export function createSystem(options = {}) {
   const agentConfig = config.agents || {};
   const routingConfig = config.routing || {};
   const websearchConfig = config.websearch || {};
+  const reliability = agentConfig.reliability || {};
 
   const workspaceStore = new WorkspaceStore({
     filePath: options.workspaceStorePath || path.join(projectRoot, ".workspace-store.json"),
@@ -95,7 +103,32 @@ export function createSystem(options = {}) {
   const registry = new SubAgentRegistry();
   const toolProxy = new ToolProxy({
     agentPolicies: agentConfig.agent_policies || {},
+    guardedCapabilities: reliability.guarded_capabilities || ["write_workspace"],
   });
+
+  const healthTracker = new HealthTracker({
+    adapterFailureWindowMs: reliability.breaker?.window_ms || 60_000,
+    adapterFailureThreshold: reliability.breaker?.consecutive_failures || 3,
+    breaker: reliability.breaker || {},
+  });
+
+  let journal = null;
+  let reducer = null;
+  let queueManager = null;
+  try {
+    journal = new TaskJournal({
+      filePath:
+        options.journalPath ||
+        path.resolve(projectRoot, reliability.journal_path || ".task-journal.sqlite"),
+    }).open();
+    reducer = new LifecycleReducer({ journal });
+    queueManager = new QueueManager({
+      reservations: reliability.queue_reservations || {},
+      agePromotionMs: reliability.age_promotion_ms || 90_000,
+    });
+  } catch (error) {
+    healthTracker.reportJournalFailure(error);
+  }
 
   const providers = buildProviders(websearchConfig, options);
   const webSearchService = new WebSearchService({
@@ -141,7 +174,43 @@ export function createSystem(options = {}) {
   registry.register("debug", debugAgent, makeAgentMeta(agentConfig, "debug"));
   registry.register("search", searchAgent, makeAgentMeta(agentConfig, "search"));
 
-  const messageBus = new MessageBus({ registry });
+  const runtimeAdapter = new RuntimeAdapter({
+    executor: null,
+    spawnSubagent: options.spawnSubagent,
+    waitForRun: options.waitForRun,
+    subscribeLifecycle: options.subscribeLifecycle,
+    resolveNotifierTarget: options.resolveNotifierTarget,
+    lookupSidecarHealth: options.lookupSidecarHealth,
+    probes: reliability.probes || {},
+  });
+
+  const messageBus = new MessageBus({
+    registry,
+    toolProxy,
+    journal,
+    reducer,
+    queueManager,
+    runtimeAdapter,
+    healthTracker,
+    heartbeatMs: reliability.heartbeat_ms || 15_000,
+    leaseMs: reliability.lease_ms || 60_000,
+    maxAttempts: reliability.max_attempts || {},
+    directOnly: healthTracker.isDegraded(),
+  });
+  runtimeAdapter.setExecutor(async (agentId, task, context) => {
+    return await messageBus.dispatch(agentId, task, context);
+  });
+
+  try {
+    await runtimeAdapter.runStartupProbes();
+  } catch (error) {
+    healthTracker.forceDegraded("probe_setup_failure", error);
+  }
+
+  if (healthTracker.isDegraded() || runtimeAdapter.getFeatureFlags().subagents === false) {
+    messageBus.setDirectOnly(true);
+  }
+
   const orchestrator = new OrchestratorAgent({
     taskRouter: router,
     contextManager,
@@ -158,11 +227,49 @@ export function createSystem(options = {}) {
     codeFanoutMaxParallel: agentConfig.orchestrator?.code_fanout?.max_parallel || 3,
     moduleVerificationEnabled: bool(agentConfig.orchestrator?.code_fanout?.verify_each_module, true),
   });
-
   registry.register("orchestrator", orchestrator, {
     name: "main_orchestrator",
     purpose: "routes and merges sub-agent outputs",
   });
+
+  let recoverySweeper = null;
+  if (
+    journal &&
+    reducer &&
+    queueManager &&
+    runtimeAdapter.getFeatureFlags().recovery !== false &&
+    !messageBus.isDirectOnly()
+  ) {
+    recoverySweeper = new RecoverySweeper({
+      journal,
+      reducer,
+      runtimeAdapter,
+      healthTracker,
+      retryTask: async (task, failure) => await messageBus.retryTask(task, failure),
+      leaseMs: reliability.lease_ms || 60_000,
+      retryGraceMs: reliability.retry_grace_ms || 45_000,
+      maxAttempts: reliability.max_attempts || {},
+      intervalMs: reliability.sweeper_ms || 30_000,
+    });
+    recoverySweeper.start();
+    messageBus.recoverWaitingTasks();
+  }
+
+  let progressNotifier = null;
+  if (
+    journal &&
+    runtimeAdapter.getFeatureFlags().notifier &&
+    typeof options.deliverNotification === "function"
+  ) {
+    progressNotifier = new ProgressNotifier({
+      journal,
+      runtimeAdapter,
+      deliverNotification: options.deliverNotification,
+      throttleMs: reliability.notifier?.throttle_ms || 30_000,
+      pollMs: reliability.notifier?.poll_ms || 1_000,
+    });
+    progressNotifier.start();
+  }
 
   return {
     config,
@@ -171,8 +278,20 @@ export function createSystem(options = {}) {
     contextManager,
     workspaceStore,
     webSearchService,
+    runtimeAdapter,
+    journal,
+    reducer,
+    queueManager,
+    recoverySweeper,
+    progressNotifier,
+    healthTracker,
     messageBus,
     orchestrator,
+    async close() {
+      progressNotifier?.stop();
+      recoverySweeper?.stop();
+      journal?.close();
+    },
   };
 }
 
@@ -213,32 +332,36 @@ async function runCli() {
     return;
   }
 
-  const system = createSystem();
-  const result = await system.orchestrator.run(
-    {
-      task: args.task,
-      modules: args.modules,
-      mode: args.enableMultiAgent ? "multi-agent" : "auto",
-      constraints: [],
-      history: [],
-    },
-    { enableMultiAgent: args.enableMultiAgent },
-  );
+  const system = await createSystem();
+  try {
+    const result = await system.orchestrator.run(
+      {
+        task: args.task,
+        modules: args.modules,
+        mode: args.enableMultiAgent ? "multi-agent" : "auto",
+        constraints: [],
+        history: [],
+      },
+      { enableMultiAgent: args.enableMultiAgent },
+    );
 
-  if (args.json) {
+    if (args.json) {
+      // eslint-disable-next-line no-console
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
     // eslint-disable-next-line no-console
-    console.log(JSON.stringify(result, null, 2));
-    return;
+    console.log(`status: ${result.status}`);
+    // eslint-disable-next-line no-console
+    console.log(`summary: ${result.summary}`);
+    // eslint-disable-next-line no-console
+    console.log(`citations: ${result.citations.length}`);
+    // eslint-disable-next-line no-console
+    console.log(`artifacts: ${result.artifacts.length}`);
+  } finally {
+    await system.close();
   }
-
-  // eslint-disable-next-line no-console
-  console.log(`status: ${result.status}`);
-  // eslint-disable-next-line no-console
-  console.log(`summary: ${result.summary}`);
-  // eslint-disable-next-line no-console
-  console.log(`citations: ${result.citations.length}`);
-  // eslint-disable-next-line no-console
-  console.log(`artifacts: ${result.artifacts.length}`);
 }
 
 const isMain = (() => {

@@ -3,6 +3,39 @@ compat_mode: true
 workspace_store:
   max_entries: 4000
 
+reliability:
+  heartbeat_ms: 15000
+  lease_ms: 60000
+  sweeper_ms: 30000
+  retry_grace_ms: 45000
+  journal_path: .task-journal.sqlite
+  age_promotion_ms: 90000
+  guarded_capabilities:
+    - write_workspace
+  max_attempts:
+    SAFE_RETRY: 3
+    GUARDED_RETRY: 2
+    MANUAL_RETRY: 1
+  queue_reservations:
+    DIRECT_TASKS: 2
+    LONG_RUNNING_TASKS: 1
+    RETRY_TASKS: 1
+    NOTIFIER_TASKS: 1
+  notifier:
+    throttle_ms: 30000
+    poll_ms: 1000
+  breaker:
+    consecutive_failures: 3
+    failure_rate_threshold: 0.5
+    minimum_samples: 4
+    window_ms: 60000
+  probes:
+    spawn: true
+    wait_for_run: true
+    lifecycle: true
+    notifier: true
+    sidecar_signals: true
+
 orchestrator:
   max_context_tokens: 2500
   small_task_token_threshold: 700

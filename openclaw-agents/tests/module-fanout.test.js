@@ -112,7 +112,7 @@ test("module fan-out runs isolated code+test per module and retries until pass",
   registry.register("code", codeAgent);
   registry.register("test", testAgent);
 
-  const messageBus = new MessageBus({ registry });
+  const messageBus = new MessageBus({ registry, directOnly: true });
   const orchestrator = new OrchestratorAgent({
     taskRouter: router,
     contextManager,
@@ -139,6 +139,7 @@ test("module fan-out runs isolated code+test per module and retries until pass",
   );
 
   assert.equal(result.status, "success");
+  assert.equal(messageBus.isDirectOnly(), true);
   assert.equal(codeAgent.moduleCalls.get("auth"), 2);
   assert.equal(codeAgent.moduleCalls.get("billing"), 2);
   assert.equal(testAgent.moduleCalls.get("auth"), 2);
@@ -147,5 +148,5 @@ test("module fan-out runs isolated code+test per module and retries until pass",
   assert.ok(result.artifacts.some((item) => item.content && String(item.content).includes("auth")));
   assert.ok(result.artifacts.some((item) => item.content && String(item.content).includes("billing")));
 
-  if (fs.existsSync(storePath)) fs.unlinkSync(storePath);
+  if (fs.existsSync(storePath)) {fs.unlinkSync(storePath);}
 });

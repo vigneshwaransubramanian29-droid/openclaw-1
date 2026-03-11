@@ -56,3 +56,10 @@ test("routing: debug request includes debug + test", () => {
   assert.ok(route.selectedAgents.includes("debug"));
   assert.ok(route.selectedAgents.includes("test"));
 });
+
+test("routing: lightweight general request can stay self-handled", () => {
+  const router = createRouter();
+  const route = router.route("summarize this", {});
+  assert.equal(route.intent, "general");
+  assert.equal(Array.isArray(route.selectedAgents), true);
+});
