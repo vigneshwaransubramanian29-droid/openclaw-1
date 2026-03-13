@@ -6,6 +6,7 @@ import type { SpawnSubagentMode } from "./spawn-modes.js";
 export type SubagentRunRecord = {
   runId: string;
   childSessionKey: string;
+  controllerSessionKey?: string;
   requesterSessionKey: string;
   requesterOrigin?: DeliveryContext;
   requesterDisplayKey: string;
