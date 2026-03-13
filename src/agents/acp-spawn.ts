@@ -41,16 +41,26 @@ import {
   startAcpSpawnParentStreamRelay,
 } from "./acp-spawn-parent-stream.js";
 import { resolveSandboxRuntimeStatus } from "./sandbox/runtime-status.js";
+import {
+  ACP_SPAWN_MODES,
+  ACP_SPAWN_SANDBOX_MODES,
+  ACP_SPAWN_STREAM_TARGETS,
+  type SpawnAcpMode,
+  type SpawnAcpSandboxMode,
+  type SpawnAcpStreamTarget,
+} from "./spawn-modes.js";
 import { resolveInternalSessionKey, resolveMainSessionAlias } from "./tools/sessions-helpers.js";
 
 const log = createSubsystemLogger("agents/acp-spawn");
 
-export const ACP_SPAWN_MODES = ["run", "session"] as const;
-export type SpawnAcpMode = (typeof ACP_SPAWN_MODES)[number];
-export const ACP_SPAWN_SANDBOX_MODES = ["inherit", "require"] as const;
-export type SpawnAcpSandboxMode = (typeof ACP_SPAWN_SANDBOX_MODES)[number];
-export const ACP_SPAWN_STREAM_TARGETS = ["parent"] as const;
-export type SpawnAcpStreamTarget = (typeof ACP_SPAWN_STREAM_TARGETS)[number];
+export {
+  ACP_SPAWN_MODES,
+  ACP_SPAWN_SANDBOX_MODES,
+  ACP_SPAWN_STREAM_TARGETS,
+  type SpawnAcpMode,
+  type SpawnAcpSandboxMode,
+  type SpawnAcpStreamTarget,
+};
 
 export type SpawnAcpParams = {
   task: string;
