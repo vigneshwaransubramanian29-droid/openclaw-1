@@ -133,6 +133,22 @@ describe("serveAcpGateway startup", () => {
     return { signalHandlers, onceSpy };
   }
 
+  async function emitHelloAndWaitForAgentSideConnection() {
+    const gateway = getMockGateway();
+    gateway.emitHello();
+    await vi.waitFor(() => {
+      expect(mockState.agentSideConnectionCtor).toHaveBeenCalledTimes(1);
+    });
+  }
+
+  async function stopServeWithSigint(
+    signalHandlers: Map<NodeJS.Signals, () => void>,
+    servePromise: Promise<void>,
+  ) {
+    signalHandlers.get("SIGINT")?.();
+    await servePromise;
+  }
+
   beforeAll(async () => {
     ({ serveAcpGateway } = await import("./server.js"));
   });
@@ -157,14 +173,8 @@ describe("serveAcpGateway startup", () => {
       await Promise.resolve();
 
       expect(mockState.agentSideConnectionCtor).not.toHaveBeenCalled();
-      const gateway = getMockGateway();
-      gateway.emitHello();
-      await vi.waitFor(() => {
-        expect(mockState.agentSideConnectionCtor).toHaveBeenCalledTimes(1);
-      });
-
-      signalHandlers.get("SIGINT")?.();
-      await servePromise;
+      await emitHelloAndWaitForAgentSideConnection();
+      await stopServeWithSigint(signalHandlers, servePromise);
     } finally {
       onceSpy.mockRestore();
     }
@@ -249,13 +259,8 @@ describe("serveAcpGateway startup", () => {
         password: "resolved-secret-password", // pragma: allowlist secret
       });
 
-      const gateway = getMockGateway();
-      gateway.emitHello();
-      await vi.waitFor(() => {
-        expect(mockState.agentSideConnectionCtor).toHaveBeenCalledTimes(1);
-      });
-      signalHandlers.get("SIGINT")?.();
-      await servePromise;
+      await emitHelloAndWaitForAgentSideConnection();
+      await stopServeWithSigint(signalHandlers, servePromise);
     } finally {
       onceSpy.mockRestore();
     }
@@ -278,13 +283,8 @@ describe("serveAcpGateway startup", () => {
         }),
       );
 
-      const gateway = getMockGateway();
-      gateway.emitHello();
-      await vi.waitFor(() => {
-        expect(mockState.agentSideConnectionCtor).toHaveBeenCalledTimes(1);
-      });
-      signalHandlers.get("SIGINT")?.();
-      await servePromise;
+      await emitHelloAndWaitForAgentSideConnection();
+      await stopServeWithSigint(signalHandlers, servePromise);
     } finally {
       onceSpy.mockRestore();
     }
