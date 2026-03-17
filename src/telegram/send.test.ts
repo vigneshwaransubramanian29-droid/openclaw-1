@@ -196,6 +196,30 @@ describe("buildInlineKeyboard", () => {
 });
 
 describe("sendMessageTelegram", () => {
+  it("repairs common UTF-8 mojibake before sending text", async () => {
+    loadConfig.mockReturnValue({
+      channels: {
+        telegram: {
+          botToken: "tok",
+        },
+      },
+    });
+    botApi.sendMessage.mockResolvedValue({
+      message_id: 1,
+      chat: { id: "123" },
+    });
+
+    await sendMessageTelegram("123", "Jarvis \u00C3\u00B0\u00C5\u00B8\u00C2\u00A4\u00E2\u20AC\u201C Got it.", {
+      token: "tok",
+    });
+
+    expect(botApi.sendMessage).toHaveBeenCalledWith(
+      "123",
+      "Jarvis 🤖 Got it.",
+      expect.objectContaining({ parse_mode: "HTML" }),
+    );
+  });
+
   it("sends typing to the resolved chat and topic", async () => {
     loadConfig.mockReturnValue({
       channels: {

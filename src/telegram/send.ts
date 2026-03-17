@@ -149,6 +149,103 @@ function splitTelegramPlainTextFallback(text: string, chunkCount: number, limit:
   return chunks;
 }
 
+const WINDOWS_1252_CODEPOINT_TO_BYTE_FIXED = new Map<number, number>([
+  [0x20ac, 0x80],
+  [0x201a, 0x82],
+  [0x0192, 0x83],
+  [0x201e, 0x84],
+  [0x2026, 0x85],
+  [0x2020, 0x86],
+  [0x2021, 0x87],
+  [0x02c6, 0x88],
+  [0x2030, 0x89],
+  [0x0160, 0x8a],
+  [0x2039, 0x8b],
+  [0x0152, 0x8c],
+  [0x017d, 0x8e],
+  [0x2018, 0x91],
+  [0x2019, 0x92],
+  [0x201c, 0x93],
+  [0x201d, 0x94],
+  [0x2022, 0x95],
+  [0x2013, 0x96],
+  [0x2014, 0x97],
+  [0x02dc, 0x98],
+  [0x2122, 0x99],
+  [0x0161, 0x9a],
+  [0x203a, 0x9b],
+  [0x0153, 0x9c],
+  [0x017e, 0x9e],
+  [0x0178, 0x9f],
+]);
+
+function encodeLegacyByteStringForMojibake(
+  text: string,
+  encoding: "latin1" | "windows1252",
+): Buffer | null {
+  const bytes: number[] = [];
+  for (const ch of text) {
+    const codePoint = ch.codePointAt(0);
+    if (codePoint === undefined) {
+      return null;
+    }
+    if (codePoint <= 0xff) {
+      bytes.push(codePoint);
+      continue;
+    }
+    if (encoding === "windows1252") {
+      const mapped = WINDOWS_1252_CODEPOINT_TO_BYTE_FIXED.get(codePoint);
+      if (mapped !== undefined) {
+        bytes.push(mapped);
+        continue;
+      }
+    }
+    return null;
+  }
+  return Buffer.from(bytes);
+}
+
+function mojibakeScoreFixed(text: string): number {
+  const suspicious = (text.match(/[\u00c3\u00c2\u00e2\u00f0\u00c5]/g) ?? []).length;
+  const replacement = (text.match(/\uFFFD/g) ?? []).length;
+  return suspicious + replacement * 10;
+}
+
+function repairUtf8MojibakeText(text: string): string {
+  if (!text || !/[\u00c3\u00c2\u00e2\u00f0\u00c5]/.test(text)) {
+    return text;
+  }
+
+  let current = text;
+  for (let i = 0; i < 2; i += 1) {
+    const candidates = (["latin1", "windows1252"] as const)
+      .map((encoding) => {
+        try {
+          const encoded = encodeLegacyByteStringForMojibake(current, encoding);
+          if (!encoded) {
+            return null;
+          }
+          const repaired = encoded.toString("utf8");
+          if (!repaired || repaired === current || repaired.includes("\uFFFD")) {
+            return null;
+          }
+          return repaired;
+        } catch {
+          return null;
+        }
+      })
+      .filter((value): value is string => Boolean(value))
+      .sort((a, b) => mojibakeScoreFixed(a) - mojibakeScoreFixed(b));
+
+    const best = candidates[0];
+    if (!best || mojibakeScoreFixed(best) >= mojibakeScoreFixed(current)) {
+      break;
+    }
+    current = best;
+  }
+  return current;
+}
+
 const PARSE_ERR_RE = /can't parse entities|parse entities|find end of the entity/i;
 const THREAD_NOT_FOUND_RE = /400:\s*Bad Request:\s*message thread not found/i;
 const MESSAGE_NOT_MODIFIED_RE =
@@ -590,6 +687,12 @@ export async function sendMessageTelegram(
   text: string,
   opts: TelegramSendOpts = {},
 ): Promise<TelegramSendResult> {
+  text = repairUtf8MojibakeText(text);
+  opts = {
+    ...opts,
+    ...(opts.plainText !== undefined ? { plainText: repairUtf8MojibakeText(opts.plainText) } : {}),
+    ...(opts.quoteText !== undefined ? { quoteText: repairUtf8MojibakeText(opts.quoteText) } : {}),
+  };
   const { cfg, account, api } = resolveTelegramApiContext(opts);
   const target = parseTelegramTarget(to);
   const chatId = await resolveAndPersistChatId({

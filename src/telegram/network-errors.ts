@@ -166,6 +166,16 @@ export function isSafeToRetrySendError(err: unknown): boolean {
     if (code && PRE_CONNECT_ERROR_CODES.has(code)) {
       return true;
     }
+    const msg = formatErrorMessage(candidate);
+    // 429 Too Many Requests: Telegram rate-limited the request without processing it — safe to retry.
+    if (/\b429\b/.test(msg)) {
+      return true;
+    }
+    // grammY "Network request for X failed after N attempts": transport-layer failure before
+    // Telegram processed the request — safe to retry.
+    if (GRAMMY_NETWORK_REQUEST_FAILED_AFTER_RE.test(msg)) {
+      return true;
+    }
   }
   return false;
 }
