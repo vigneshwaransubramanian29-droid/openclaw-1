@@ -1,6 +1,9 @@
 import type { OpenClawConfig } from "../config/config.js";
 import { buildGatewayConnectionDetails, callGateway } from "../gateway/call.js";
-import type { DoctorMemoryStatusPayload } from "../gateway/server-methods/doctor.js";
+import type {
+  DoctorMemoryStatusPayload,
+  DoctorWebStatusPayload,
+} from "../gateway/server-methods/doctor.js";
 import { collectChannelStatusIssues } from "../infra/channels-status-issues.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { note } from "../terminal/note.js";
@@ -10,6 +13,13 @@ import { healthCommand } from "./health.js";
 export type GatewayMemoryProbe = {
   checked: boolean;
   ready: boolean;
+  error?: string;
+};
+
+export type GatewayWebSearchProbe = {
+  checked: boolean;
+  ready: boolean;
+  provider?: string;
   error?: string;
 };
 
@@ -87,6 +97,34 @@ export async function probeGatewayMemoryStatus(params: {
       checked: true,
       ready: false,
       error: `gateway memory probe unavailable: ${message}`,
+    };
+  }
+}
+
+export async function probeGatewayWebSearchStatus(params: {
+  cfg: OpenClawConfig;
+  timeoutMs?: number;
+}): Promise<GatewayWebSearchProbe> {
+  const timeoutMs =
+    typeof params.timeoutMs === "number" && params.timeoutMs > 0 ? params.timeoutMs : 8_000;
+  try {
+    const payload = await callGateway<DoctorWebStatusPayload>({
+      method: "doctor.web.status",
+      timeoutMs,
+      config: params.cfg,
+    });
+    return {
+      checked: true,
+      ready: payload.search.ok,
+      provider: payload.provider,
+      error: payload.search.error,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      checked: true,
+      ready: false,
+      error: `gateway web probe unavailable: ${message}`,
     };
   }
 }

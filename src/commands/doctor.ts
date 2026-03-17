@@ -28,12 +28,17 @@ import {
   maybeRepairAnthropicOAuthProfileId,
   noteAuthProfileHealth,
 } from "./doctor-auth.js";
+import { noteAcpHealth } from "./doctor-acp.js";
 import { noteBootstrapFileSize } from "./doctor-bootstrap-size.js";
 import { doctorShellCompletion } from "./doctor-completion.js";
 import { loadAndMaybeMigrateDoctorConfig } from "./doctor-config-flow.js";
 import { maybeRepairLegacyCronStore } from "./doctor-cron.js";
 import { maybeRepairGatewayDaemon } from "./doctor-gateway-daemon-flow.js";
-import { checkGatewayHealth, probeGatewayMemoryStatus } from "./doctor-gateway-health.js";
+import {
+  checkGatewayHealth,
+  probeGatewayMemoryStatus,
+  probeGatewayWebSearchStatus,
+} from "./doctor-gateway-health.js";
 import {
   maybeRepairGatewayServiceConfig,
   maybeScanExtraGatewayServices,
@@ -46,6 +51,7 @@ import {
   noteDeprecatedLegacyEnvVars,
   noteStartupOptimizationHints,
 } from "./doctor-platform-notes.js";
+import { noteDoctorProfileContext } from "./doctor-profile-context.js";
 import { createDoctorPrompter, type DoctorOptions } from "./doctor-prompter.js";
 import { maybeRepairSandboxImages, noteSandboxScopeWarnings } from "./doctor-sandbox.js";
 import { noteSecurityWarnings } from "./doctor-security.js";
@@ -57,6 +63,7 @@ import {
 } from "./doctor-state-migrations.js";
 import { maybeRepairUiProtocolFreshness } from "./doctor-ui.js";
 import { maybeOfferUpdateBeforeDoctor } from "./doctor-update.js";
+import { noteWebSearchHealth } from "./doctor-web-search.js";
 import { noteWorkspaceStatus } from "./doctor-workspace-status.js";
 import { MEMORY_SYSTEM_PROMPT, shouldSuggestMemorySystem } from "./doctor-workspace.js";
 import { noteOpenAIOAuthTlsPrerequisites } from "./oauth-tls-preflight.js";
@@ -109,6 +116,7 @@ export async function doctorCommand(
   const sourceConfigValid = configResult.sourceConfigValid ?? true;
 
   const configPath = configResult.path ?? CONFIG_PATH;
+  noteDoctorProfileContext(configPath);
   if (!cfg.gateway?.mode) {
     const lines = [
       "gateway.mode is unset; gateway start will be blocked.",
@@ -240,6 +248,7 @@ export async function doctorCommand(
     cfg,
     deep: options.deep === true,
   });
+  await noteAcpHealth(cfg);
 
   if (cfg.hooks?.gmail?.model?.trim()) {
     const hooksModelRef = resolveHooksGmailModel({
@@ -324,6 +333,14 @@ export async function doctorCommand(
         timeoutMs: options.nonInteractive === true ? 3000 : 10_000,
       })
     : { checked: false, ready: false };
+  const gatewayWebProbe =
+    options.deep === true && healthOk
+      ? await probeGatewayWebSearchStatus({
+          cfg,
+          timeoutMs: options.nonInteractive === true ? 3000 : 10_000,
+        })
+      : { checked: false, ready: false };
+  await noteWebSearchHealth(cfg, { gatewayWebProbe });
   await noteMemorySearchHealth(cfg, { gatewayMemoryProbe });
   await maybeRepairGatewayDaemon({
     cfg,

@@ -23,6 +23,7 @@ import {
 } from "./web-shared.js";
 
 const SEARCH_PROVIDERS = ["brave", "gemini", "grok", "kimi", "perplexity"] as const;
+export type WebSearchProvider = (typeof SEARCH_PROVIDERS)[number];
 const DEFAULT_SEARCH_COUNT = 5;
 const MAX_SEARCH_COUNT = 10;
 
@@ -561,7 +562,7 @@ function resolveSearchApiKey(search?: WebSearchConfig): string | undefined {
   return fromConfig || fromEnv || undefined;
 }
 
-function missingSearchKeyPayload(provider: (typeof SEARCH_PROVIDERS)[number]) {
+function missingSearchKeyPayload(provider: WebSearchProvider) {
   if (provider === "brave") {
     return {
       error: "missing_brave_api_key",
@@ -601,7 +602,7 @@ function missingSearchKeyPayload(provider: (typeof SEARCH_PROVIDERS)[number]) {
   };
 }
 
-function resolveSearchProvider(search?: WebSearchConfig): (typeof SEARCH_PROVIDERS)[number] {
+function resolveSearchProvider(search?: WebSearchConfig): WebSearchProvider {
   const raw =
     search && "provider" in search && typeof search.provider === "string"
       ? search.provider.trim().toLowerCase()
@@ -678,6 +679,33 @@ function resolveBraveConfig(search?: WebSearchConfig): BraveConfig {
     return {};
   }
   return brave as BraveConfig;
+}
+
+export function resolveWebSearchProvider(search?: WebSearchConfig): WebSearchProvider {
+  return resolveSearchProvider(search);
+}
+
+export function resolveWebSearchProviderApiKey(
+  provider: WebSearchProvider,
+  search?: WebSearchConfig,
+): string | undefined {
+  if (provider === "brave") {
+    return resolveSearchApiKey(search);
+  }
+  if (provider === "gemini") {
+    return resolveGeminiApiKey(resolveGeminiConfig(search));
+  }
+  if (provider === "grok") {
+    return resolveGrokApiKey(resolveGrokConfig(search));
+  }
+  if (provider === "kimi") {
+    return resolveKimiApiKey(resolveKimiConfig(search));
+  }
+  return resolvePerplexityApiKey(resolvePerplexityConfig(search)).apiKey;
+}
+
+export function resolveWebSearchMissingKeyPayload(provider: WebSearchProvider) {
+  return missingSearchKeyPayload(provider);
 }
 
 function resolveBraveMode(brave: BraveConfig): "web" | "llm-context" {
