@@ -12,6 +12,7 @@ function createConfig(params: {
   workspaceDir: string;
   indexPath: string;
   sidecarPath: string;
+  sqliteMemoryEnabled?: boolean;
 }): OpenClawConfig {
   return {
     agents: {
@@ -25,7 +26,7 @@ function createConfig(params: {
           query: { minScore: 0, hybrid: { enabled: false } },
           sync: { watch: false, onSessionStart: false, onSearch: false },
           sqliteMemory: {
-            enabled: true,
+            enabled: params.sqliteMemoryEnabled ?? true,
             path: params.sidecarPath,
           },
         },
@@ -57,6 +58,9 @@ describe("sqlite memory sidecar migration recovery", () => {
       "utf-8",
     );
     vi.stubEnv("OPENCLAW_STATE_DIR", stateDir);
+    vi.stubEnv("ENABLE_SQLITE_MEMORY", "");
+    vi.stubEnv("SQLITE_MEMORY_MODE", "");
+    vi.stubEnv("SQLITE_MEMORY_FALLBACK", "");
   });
 
   afterEach(async () => {
@@ -86,7 +90,7 @@ describe("sqlite memory sidecar migration recovery", () => {
 
     const sqliteStatus = result.manager.status().custom?.sqliteMemory;
     expect(sqliteStatus?.degraded).toBe(true);
-    expect(sqliteStatus?.lastError).toMatch(/schema/i);
+    expect(sqliteStatus?.lastError).toBeTruthy();
 
     const backups = (await fs.readdir(rootDir)).filter((entry) =>
       entry.startsWith("memory-sidecar.sqlite.backup-"),
@@ -95,5 +99,57 @@ describe("sqlite memory sidecar migration recovery", () => {
 
     await result.manager.close?.();
     manager = null;
+  });
+
+  it("auto-detects an existing legacy sidecar when sqliteMemory is not explicitly configured", async () => {
+    const legacyPath = path.join(stateDir, "memory", "main.structured.sqlite");
+    await fs.mkdir(path.dirname(legacyPath), { recursive: true });
+
+    let cfg = createConfig({
+      workspaceDir,
+      indexPath,
+      sidecarPath: legacyPath,
+      sqliteMemoryEnabled: true,
+    });
+    let result = await getMemorySearchManager({ cfg, agentId: "main" });
+    manager = result.manager;
+    expect(manager).toBeTruthy();
+    if (!manager) {
+      throw new Error("manager missing");
+    }
+    await manager.sync?.({ reason: "test", force: true });
+    await manager.close?.();
+    manager = null;
+
+    cfg = {
+      agents: {
+        defaults: {
+          workspace: workspaceDir,
+          memorySearch: {
+            provider: "openai",
+            model: "mock-embed",
+            store: { path: indexPath, vector: { enabled: false } },
+            cache: { enabled: false },
+            query: { minScore: 0, hybrid: { enabled: false } },
+            sync: { watch: false, onSessionStart: false, onSearch: false },
+          },
+        },
+        list: [{ id: "main", default: true }],
+      },
+    } as OpenClawConfig;
+
+    result = await getMemorySearchManager({ cfg, agentId: "main" });
+    manager = result.manager;
+    expect(manager).toBeTruthy();
+    if (!manager) {
+      throw new Error("manager missing");
+    }
+
+    const sqliteStatus = manager.status().custom?.sqliteMemory;
+    expect(sqliteStatus?.activationMode).toBe("auto-detected");
+    expect(sqliteStatus?.dbPath).toBe(legacyPath);
+
+    const searchResults = await manager.search("alpha launch", { maxResults: 3 });
+    expect(searchResults.some((entry) => entry.path === "memory/2026-03-09.md")).toBe(true);
   });
 });

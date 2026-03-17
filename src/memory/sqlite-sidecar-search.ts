@@ -1,6 +1,10 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { ResolvedSqliteMemoryConfig } from "../agents/memory-search.js";
-import type { MemorySearchResult } from "./types.js";
+import type {
+  MemorySearchBackend,
+  MemorySearchResult,
+  MemorySearchResultBackend,
+} from "./types.js";
 
 type SidecarSearchRow = {
   path: string;
@@ -12,6 +16,8 @@ type SidecarSearchRow = {
   updatedAt?: number;
   status?: string;
 };
+
+type SqliteSearchValue = string | number | null;
 
 function normalizeLookupText(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
@@ -26,12 +32,17 @@ function buildFtsQuery(raw: string): string | null {
     const trimmed = raw.trim().replace(/"/g, '""');
     return trimmed ? `"${trimmed}"` : null;
   }
-  return tokens.map((token) => `"${token.replace(/"/g, '""')}"*`).join(" AND ");
+  // Use OR so partial matches surface (e.g. "wife name" finds "Wife: Sarah").
+  // FTS5 ranks by BM25 so docs matching more tokens still rank higher.
+  return tokens.map((token) => `"${token.replace(/"/g, '""')}"*`).join(" OR ");
 }
 
 function buildLikePattern(raw: string): string {
+  // Use the longest token as the LIKE anchor — simpler and avoids requiring
+  // tokens in sequence (e.g. "wife name" should find "Wife: Sarah").
   const tokens = normalizeLookupText(raw).split(/\s+/).filter(Boolean);
-  return `%${tokens.join("%")}%`;
+  const anchor = tokens.reduce((a, b) => (a.length >= b.length ? a : b), tokens[0] ?? raw.trim());
+  return `%${anchor}%`;
 }
 
 function toMemoryResult(row: SidecarSearchRow, score: number): MemorySearchResult {
@@ -42,21 +53,70 @@ function toMemoryResult(row: SidecarSearchRow, score: number): MemorySearchResul
     score: Math.max(0.01, Math.min(1, score)),
     snippet: row.snippet,
     source: row.path.startsWith("sessions/") ? "sessions" : "memory",
+    backend: "sqlite-sidecar",
+    backends: ["sqlite-sidecar"],
   };
 }
 
+function normalizeBackends(result: MemorySearchResult): MemorySearchBackend[] {
+  if (Array.isArray(result.backends) && result.backends.length > 0) {
+    return Array.from(new Set(result.backends));
+  }
+  if (result.backend === "primary" || result.backend === "sqlite-sidecar") {
+    return [result.backend];
+  }
+  return [];
+}
+
+function mergeBackendState(backends: MemorySearchBackend[]): MemorySearchResultBackend | undefined {
+  if (backends.length === 0) {
+    return undefined;
+  }
+  if (backends.length === 1) {
+    return backends[0];
+  }
+  return "merged";
+}
+
+function compareResults(left: MemorySearchResult, right: MemorySearchResult): number {
+  if (right.score !== left.score) {
+    return right.score - left.score;
+  }
+  if (left.path !== right.path) {
+    return left.path.localeCompare(right.path);
+  }
+  if (left.startLine !== right.startLine) {
+    return left.startLine - right.startLine;
+  }
+  return left.endLine - right.endLine;
+}
+
 function dedupeResults(results: MemorySearchResult[]): MemorySearchResult[] {
-  const seen = new Set<string>();
-  const deduped: MemorySearchResult[] = [];
+  const merged = new Map<string, MemorySearchResult>();
   for (const result of results) {
     const key = `${normalizeLookupText(result.snippet)}|${result.path}|${result.startLine}|${result.endLine}`;
-    if (seen.has(key)) {
+    const existing = merged.get(key);
+    if (!existing) {
+      const backends = normalizeBackends(result);
+      merged.set(key, {
+        ...result,
+        backend: mergeBackendState(backends) ?? result.backend,
+        backends: backends.length > 0 ? backends : result.backends,
+      });
       continue;
     }
-    seen.add(key);
-    deduped.push(result);
+
+    const backends = Array.from(new Set([...normalizeBackends(existing), ...normalizeBackends(result)]));
+    merged.set(key, {
+      ...existing,
+      score: Math.max(existing.score, result.score),
+      citation: existing.citation ?? result.citation,
+      source: existing.source,
+      backend: mergeBackendState(backends) ?? existing.backend ?? result.backend,
+      backends,
+    });
   }
-  return deduped;
+  return [...merged.values()].sort(compareResults);
 }
 
 function searchStage(params: {
@@ -66,8 +126,8 @@ function searchStage(params: {
   likePattern: string;
   sqlFts: string;
   sqlLike: string;
-  valuesFts: unknown[];
-  valuesLike: unknown[];
+  valuesFts: SqliteSearchValue[];
+  valuesLike: SqliteSearchValue[];
 }): SidecarSearchRow[] {
   if (params.ftsAvailable && params.ftsQuery) {
     return params.db.prepare(params.sqlFts).all(...params.valuesFts) as SidecarSearchRow[];

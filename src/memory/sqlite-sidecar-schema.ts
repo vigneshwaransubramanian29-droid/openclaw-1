@@ -64,6 +64,14 @@ export function ensureSqliteMemorySidecarSchema(params: {
   }
   if (currentVersion > 0 && currentVersion < SQLITE_MEMORY_SCHEMA_VERSION) {
     backupSqliteSidecarFiles(params.dbPath);
+    // Run incremental migrations for each version step so ALTER TABLE and other
+    // DDL changes are applied to existing databases during upgrades.
+    runSqliteImmediateTransaction(params.db, () => {
+      if (currentVersion < 2) {
+        // v1 → v2 migrations go here (e.g., ALTER TABLE x ADD COLUMN y TEXT)
+      }
+      params.db.exec(`PRAGMA user_version = ${SQLITE_MEMORY_SCHEMA_VERSION}`);
+    });
   }
 
   return runSqliteImmediateTransaction(params.db, () => {

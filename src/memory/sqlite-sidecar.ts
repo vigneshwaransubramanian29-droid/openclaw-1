@@ -21,12 +21,14 @@ import type {
   MemorySearchManager,
   MemorySearchResult,
   MemorySyncProgressUpdate,
+  SqliteMemoryProviderStatus,
 } from "./types.js";
 
 const log = createSubsystemLogger("memory");
 const SIDECAR_SYNC_DEBOUNCE_MS = 250;
 const SIDECAR_SYNC_RETRY_BASE_MS = 1_000;
 const SIDECAR_SYNC_RETRY_MAX_MS = 60_000;
+const SIDECAR_FIRST_SEARCH_WAIT_MS = 350;
 
 type SidecarPurpose = "full" | "status";
 
@@ -60,6 +62,7 @@ export class SqliteMemorySidecarManager implements MemorySearchManager {
       workspaceDir: string;
       settings: ResolvedMemorySearchConfig;
       delegate: MemorySearchManager;
+      activationMode: "configured" | "auto-detected";
       purpose?: SidecarPurpose;
       onClose?: () => void;
     },
@@ -81,51 +84,61 @@ export class SqliteMemorySidecarManager implements MemorySearchManager {
     opts?: { maxResults?: number; minScore?: number; sessionKey?: string },
   ): Promise<MemorySearchResult[]> {
     const startedAt = Date.now();
+    const totalLimit = opts?.maxResults ?? this.params.settings.sqliteMemory.retrieval.maxResults;
     this.scheduleSidecarSync({ reason: "search" });
+    const delegatePromise = this.params.delegate
+      .search(query, {
+        ...opts,
+        maxResults: totalLimit,
+      })
+      .then((results) => this.annotatePrimaryResults(results));
+    const sidecarReadyPromise = this.waitForSidecarReadiness();
+    const [delegateOutcome, sidecarReady] = await Promise.all([
+      delegatePromise.then(
+        (results) => ({ ok: true as const, results }),
+        (error) => ({ ok: false as const, error }),
+      ),
+      sidecarReadyPromise,
+    ]);
+
     let sidecarResults: MemorySearchResult[] = [];
-    if (this.isSidecarUsableForSearch()) {
+    if (sidecarReady) {
       try {
-        sidecarResults = searchSqliteSidecar({
-          db: this.db,
-          agentId: this.params.agentId,
-          query,
-          ftsAvailable: this.ftsAvailable,
-          sqliteMemory: this.params.settings.sqliteMemory,
-          maxResults: opts?.maxResults,
-          sessionKey: opts?.sessionKey,
-        });
+        sidecarResults = this.searchSidecar(query, opts);
       } catch (err) {
         this.recordFailure("search", err);
       }
     }
 
-    const totalLimit = opts?.maxResults ?? this.params.settings.sqliteMemory.retrieval.maxResults;
-    const remaining = Math.max(0, totalLimit - sidecarResults.length);
-    if (remaining <= 0) {
-      this.lastSearchMs = Date.now() - startedAt;
-      this.writeMeta("last_search_ms", this.lastSearchMs);
-      return sidecarResults.slice(0, totalLimit);
+    if (!delegateOutcome.ok) {
+      if (sidecarResults.length > 0) {
+        return this.finalizeSearch(sidecarResults, startedAt, totalLimit);
+      }
+      // Sidecar wasn't ready (degraded, not yet synced, or timed out) but primary
+      // also failed — try the SQLite DB directly as last-resort fallback.
+      // Stale local data is always better than surfacing a quota/network error.
+      if (!sidecarReady) {
+        try {
+          const emergency = this.searchSidecar(query, opts);
+          if (emergency.length > 0) {
+            return this.finalizeSearch(emergency, startedAt, totalLimit);
+          }
+        } catch {
+          // SQLite also unavailable; fall through to throw the original error
+        }
+      }
+      throw delegateOutcome.error;
     }
 
-    try {
-      const delegateResults = await this.params.delegate.search(query, {
-        ...opts,
-        maxResults: remaining,
-      });
-      this.lastSearchMs = Date.now() - startedAt;
-      this.writeMeta("last_search_ms", this.lastSearchMs);
-      return dedupeMergedMemoryResults([...sidecarResults, ...delegateResults]).slice(
-        0,
-        totalLimit,
-      );
-    } catch (err) {
-      if (sidecarResults.length > 0) {
-        this.lastSearchMs = Date.now() - startedAt;
-        this.writeMeta("last_search_ms", this.lastSearchMs);
-        return sidecarResults.slice(0, totalLimit);
-      }
-      throw err;
+    if (sidecarResults.length === 0) {
+      return this.finalizeSearch(delegateOutcome.results, startedAt, totalLimit);
     }
+
+    return this.finalizeSearch(
+      dedupeMergedMemoryResults([...sidecarResults, ...delegateOutcome.results]),
+      startedAt,
+      totalLimit,
+    );
   }
 
   async readFile(params: {
@@ -141,7 +154,6 @@ export class SqliteMemorySidecarManager implements MemorySearchManager {
 
   status(): MemoryProviderStatus {
     const base = this.params.delegate.status();
-    const sidecarUsableForSearch = this.isSidecarUsableForSearch();
     let rowCounts: SqliteMemoryCounts | undefined;
     try {
       rowCounts = readSqliteMemoryCounts(this.db);
@@ -152,35 +164,39 @@ export class SqliteMemorySidecarManager implements MemorySearchManager {
     const persistedLastSyncMs = this.readMetaNumber("last_sync_ms");
     const persistedLastWriteMs = this.readMetaNumber("last_write_ms");
     const persistedLastError = this.readMetaString("last_error");
+    const state = this.getSidecarState({ rowCounts, persistedLastSyncMs });
+    const sqliteMemory: SqliteMemoryProviderStatus = {
+      enabled: true,
+      mode: this.params.settings.sqliteMemory.mode,
+      dbPath: this.dbPath,
+      degraded: this.degraded,
+      activationMode: this.params.activationMode,
+      state,
+      fallback: this.params.settings.sqliteMemory.fallback,
+      fallbackState: state === "ready" ? "existing" : "delegate-only",
+      rowCounts,
+      lastSearchMs: this.lastSearchMs ?? persistedLastSearchMs,
+      lastSyncMs: this.lastSyncMs ?? persistedLastSyncMs,
+      lastWriteMs: this.lastWriteMs ?? persistedLastWriteMs,
+      lastError: this.lastError ?? persistedLastError,
+      freshVerified: this.freshVerified,
+      syncInFlight: this.syncPromise != null,
+      dirty: {
+        memory: this.dirtyMemory,
+        sessions: this.dirtySessions,
+      },
+      nextSyncAllowedAt: this.nextSyncAllowedAt || undefined,
+      consecutiveSyncFailures: this.consecutiveSyncFailures,
+      fts: {
+        available: this.ftsAvailable,
+        error: this.ftsError,
+      },
+    };
     return {
       ...base,
       custom: {
         ...(base.custom ?? {}),
-        sqliteMemory: {
-          enabled: true,
-          mode: this.params.settings.sqliteMemory.mode,
-          dbPath: this.dbPath,
-          degraded: this.degraded,
-          fallback: this.params.settings.sqliteMemory.fallback,
-          fallbackState: sidecarUsableForSearch ? "existing" : "delegate-only",
-          rowCounts,
-          lastSearchMs: this.lastSearchMs ?? persistedLastSearchMs,
-          lastSyncMs: this.lastSyncMs ?? persistedLastSyncMs,
-          lastWriteMs: this.lastWriteMs ?? persistedLastWriteMs,
-          lastError: this.lastError ?? persistedLastError,
-          freshVerified: this.freshVerified,
-          syncInFlight: this.syncPromise != null,
-          dirty: {
-            memory: this.dirtyMemory,
-            sessions: this.dirtySessions,
-          },
-          nextSyncAllowedAt: this.nextSyncAllowedAt || undefined,
-          consecutiveSyncFailures: this.consecutiveSyncFailures,
-          fts: {
-            available: this.ftsAvailable,
-            error: this.ftsError,
-          },
-        },
+        sqliteMemory,
       },
     };
   }
@@ -377,6 +393,111 @@ export class SqliteMemorySidecarManager implements MemorySearchManager {
       !this.dirtySessions &&
       !this.syncPromise
     );
+  }
+
+  private hasPersistedSidecarRows(): boolean {
+    try {
+      const counts = readSqliteMemoryCounts(this.db);
+      return Object.values(counts).some((count) => typeof count === "number" && count > 0);
+    } catch {
+      return false;
+    }
+  }
+
+  private annotatePrimaryResults(results: MemorySearchResult[]): MemorySearchResult[] {
+    return results.map((result) => ({
+      ...result,
+      backend: result.backend ?? "primary",
+      backends:
+        result.backends && result.backends.length > 0
+          ? result.backends
+          : result.backend === "sqlite-sidecar"
+            ? ["sqlite-sidecar"]
+            : ["primary"],
+    }));
+  }
+
+  private searchSidecar(
+    query: string,
+    opts?: { maxResults?: number; minScore?: number; sessionKey?: string },
+  ): MemorySearchResult[] {
+    return searchSqliteSidecar({
+      db: this.db,
+      agentId: this.params.agentId,
+      query,
+      ftsAvailable: this.ftsAvailable,
+      sqliteMemory: this.params.settings.sqliteMemory,
+      maxResults: opts?.maxResults,
+      sessionKey: opts?.sessionKey,
+    });
+  }
+
+  private async waitForSidecarReadiness(timeoutMs = SIDECAR_FIRST_SEARCH_WAIT_MS): Promise<boolean> {
+    if (this.purpose !== "full" || this.degraded) {
+      return false;
+    }
+    if (this.isSidecarUsableForSearch()) {
+      return true;
+    }
+    if (!this.syncPromise && this.nextSyncAllowedAt > Date.now()) {
+      this.scheduleSidecarSync({ reason: "search" });
+      return false;
+    }
+
+    const syncPromise = this.syncPromise ?? this.syncSidecar({ reason: "search-readiness" });
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => resolve(), timeoutMs);
+      void syncPromise.finally(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    if (this.isSidecarUsableForSearch()) {
+      return true;
+    }
+    // On one-shot CLI invocations, the manager starts "dirty" before the
+    // background verification finishes. If we already have persisted rows,
+    // prefer that local snapshot over silently dropping the sidecar backend.
+    return this.hasPersistedSidecarRows();
+  }
+
+  private finalizeSearch(
+    results: MemorySearchResult[],
+    startedAt: number,
+    totalLimit: number,
+  ): MemorySearchResult[] {
+    this.lastSearchMs = Date.now() - startedAt;
+    this.writeMeta("last_search_ms", this.lastSearchMs);
+    return results.slice(0, totalLimit);
+  }
+
+  private getSidecarState(params: {
+    rowCounts?: SqliteMemoryCounts;
+    persistedLastSyncMs?: number;
+  }): SqliteMemoryProviderStatus["state"] {
+    if (this.degraded) {
+      return "degraded";
+    }
+    if (this.isSidecarUsableForSearch()) {
+      return "ready";
+    }
+    const hasPersistedRows = Boolean(
+      params.rowCounts &&
+        Object.values(params.rowCounts).some((count) => typeof count === "number" && count > 0),
+    );
+    if (this.purpose === "status" && (hasPersistedRows || (params.persistedLastSyncMs ?? 0) > 0)) {
+      return "ready";
+    }
+    if (
+      this.syncPromise ||
+      this.scheduledSyncTimer ||
+      this.dirtyMemory ||
+      this.dirtySessions ||
+      !this.freshVerified
+    ) {
+      return "syncing";
+    }
+    return "delegate-only";
   }
 
   private scheduleSidecarSync(params?: { reason?: string; force?: boolean }): void {

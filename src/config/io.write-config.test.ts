@@ -339,6 +339,43 @@ describe("config io write", () => {
     });
   });
 
+  it("preserves memorySearch sqliteMemory when writing unrelated config changes", async () => {
+    await withSuiteHome(async (home) => {
+      const { configPath, io, snapshot } = await writeConfigAndCreateIo({
+        home,
+        initialConfig: {
+          agents: {
+            defaults: {
+              memorySearch: {
+                sqliteMemory: {
+                  enabled: true,
+                  mode: "sidecar",
+                  fallback: "existing",
+                  path: "~/.openclaw/memory/{agentId}.structured.sqlite",
+                },
+              },
+            },
+          },
+          gateway: { port: 18789 },
+        },
+      });
+
+      const persisted = await writeTokenAuthAndReadConfig({ io, snapshot, configPath });
+      expect(persisted.agents).toMatchObject({
+        defaults: {
+          memorySearch: {
+            sqliteMemory: {
+              enabled: true,
+              mode: "sidecar",
+              fallback: "existing",
+              path: "~/.openclaw/memory/{agentId}.structured.sqlite",
+            },
+          },
+        },
+      });
+    });
+  });
+
   it("does not reintroduce Slack/Discord legacy dm.policy defaults when writing", async () => {
     await withSuiteHome(async (home) => {
       const { configPath, io, snapshot } = await writeConfigAndCreateIo({

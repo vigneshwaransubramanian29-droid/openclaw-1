@@ -1,4 +1,6 @@
 export type MemorySource = "memory" | "sessions";
+export type MemorySearchBackend = "primary" | "sqlite-sidecar";
+export type MemorySearchResultBackend = MemorySearchBackend | "merged";
 
 export type MemorySearchResult = {
   path: string;
@@ -8,6 +10,8 @@ export type MemorySearchResult = {
   snippet: string;
   source: MemorySource;
   citation?: string;
+  backend?: MemorySearchResultBackend;
+  backends?: MemorySearchBackend[];
 };
 
 export type MemoryEmbeddingProbeResult = {
@@ -20,6 +24,8 @@ export type SqliteMemoryProviderStatus = {
   mode: "sidecar";
   dbPath: string;
   degraded: boolean;
+  activationMode: "configured" | "auto-detected";
+  state: "ready" | "syncing" | "delegate-only" | "degraded";
   fallback: "existing";
   fallbackState: "existing" | "delegate-only";
   rowCounts?: {
@@ -34,6 +40,14 @@ export type SqliteMemoryProviderStatus = {
   lastSyncMs?: number;
   lastWriteMs?: number;
   lastError?: string;
+  freshVerified?: boolean;
+  syncInFlight?: boolean;
+  dirty?: {
+    memory: boolean;
+    sessions: boolean;
+  };
+  nextSyncAllowedAt?: number;
+  consecutiveSyncFailures?: number;
   fts?: {
     available: boolean;
     error?: string;

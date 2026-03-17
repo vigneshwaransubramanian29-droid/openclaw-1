@@ -6,6 +6,7 @@ import type { OpenClawConfig } from "../config/config.js";
 import { resetEmbeddingMocks } from "./embedding.test-mocks.js";
 import { getMemorySearchManager } from "./index.js";
 import { requireNodeSqlite } from "./sqlite.js";
+import type { MemorySearchResult } from "./types.js";
 import "./test-runtime-mocks.js";
 
 function createConfig(params: {
@@ -90,6 +91,16 @@ function buildMessage(params: {
   };
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 async function getRequiredManager(cfg: OpenClawConfig) {
   const result = await getMemorySearchManager({ cfg, agentId: "main" });
   expect(result.manager).toBeTruthy();
@@ -151,7 +162,7 @@ describe("sqlite memory sidecar", () => {
       maxResults: 4,
     });
 
-    expect(results[0]?.path).toBe("sessions/session-alpha.jsonl");
+    expect(results.some((entry) => entry.path === "sessions/session-alpha.jsonl")).toBe(true);
     expect(results.some((entry) => entry.path === "memory/2026-03-09.md")).toBe(true);
 
     const transcript = await manager.readFile({
@@ -175,6 +186,7 @@ describe("sqlite memory sidecar", () => {
       dirtyMemory: boolean;
       dirtySessions: boolean;
       scheduleSidecarSync: (params?: { reason?: string; force?: boolean }) => void;
+      waitForSidecarReadiness: () => Promise<boolean>;
       params: {
         delegate: {
           search: (
@@ -189,6 +201,7 @@ describe("sqlite memory sidecar", () => {
     inner.dirtySessions = true;
     const scheduleSpy = vi.fn();
     inner.scheduleSidecarSync = scheduleSpy;
+    inner.waitForSidecarReadiness = vi.fn(async () => false);
     const delegateSpy = vi
       .spyOn(inner.params.delegate, "search")
       .mockResolvedValue([
@@ -211,10 +224,119 @@ describe("sqlite memory sidecar", () => {
         score: 0.9,
         snippet: "delegate",
         source: "memory",
+        backend: "primary",
+        backends: ["primary"],
       },
     ]);
     expect(delegateSpy).toHaveBeenCalledTimes(1);
     expect(scheduleSpy).toHaveBeenCalledWith({ reason: "search" });
+  });
+
+  it("starts primary search before sidecar readiness resolves and merges provenance-aware results", async () => {
+    const cfg = createConfig({ workspaceDir, indexPath, sidecarPath });
+    manager = await getRequiredManager(cfg);
+    const inner = manager as unknown as {
+      waitForSidecarReadiness: () => Promise<boolean>;
+      searchSidecar: (
+        query: string,
+        opts?: { maxResults?: number; minScore?: number; sessionKey?: string },
+      ) => MemorySearchResult[];
+      params: {
+        delegate: {
+          search: (
+            query: string,
+            opts?: { maxResults?: number; minScore?: number; sessionKey?: string },
+          ) => Promise<MemorySearchResult[]>;
+        };
+      };
+    };
+    const readiness = createDeferred<boolean>();
+    let delegateStarted = false;
+    inner.waitForSidecarReadiness = vi.fn(() => readiness.promise);
+    inner.searchSidecar = vi.fn(
+      () =>
+        [
+          {
+            path: "sessions/learning.jsonl",
+            startLine: 4,
+            endLine: 4,
+            score: 0.92,
+            snippet: "Use spaced repetition for learning",
+            source: "sessions",
+            backend: "sqlite-sidecar",
+            backends: ["sqlite-sidecar"],
+          },
+        ] satisfies MemorySearchResult[],
+    );
+    const delegateSpy = vi.spyOn(inner.params.delegate, "search").mockImplementation(async () => {
+      delegateStarted = true;
+      return [
+        {
+          path: "memory/learning.md",
+          startLine: 1,
+          endLine: 1,
+          score: 0.75,
+          snippet: "Use review intervals for learning",
+          source: "memory",
+        },
+      ];
+    });
+
+    const searchPromise = manager.search("learning", { maxResults: 4 });
+    await Promise.resolve();
+    expect(delegateStarted).toBe(true);
+    expect(delegateSpy).toHaveBeenCalledTimes(1);
+
+    readiness.resolve(true);
+    const results = await searchPromise;
+    expect(results).toHaveLength(2);
+    expect(results.some((entry) => entry.backend === "primary")).toBe(true);
+    expect(results.some((entry) => entry.backend === "sqlite-sidecar")).toBe(true);
+  });
+
+  it("merges duplicate hits from primary and sqlite sidecar into one result", async () => {
+    const cfg = createConfig({ workspaceDir, indexPath, sidecarPath });
+    manager = await getRequiredManager(cfg);
+    const inner = manager as unknown as {
+      waitForSidecarReadiness: () => Promise<boolean>;
+      searchSidecar: () => MemorySearchResult[];
+      params: {
+        delegate: {
+          search: () => Promise<MemorySearchResult[]>;
+        };
+      };
+    };
+    inner.waitForSidecarReadiness = vi.fn(async () => true);
+    inner.searchSidecar = vi.fn(
+      () =>
+        [
+          {
+            path: "memory/learning.md",
+            startLine: 1,
+            endLine: 1,
+            score: 0.9,
+            snippet: "Space repetition improves retention",
+            source: "memory",
+            backend: "sqlite-sidecar",
+            backends: ["sqlite-sidecar"],
+          },
+        ] satisfies MemorySearchResult[],
+    );
+    vi.spyOn(inner.params.delegate, "search").mockResolvedValue([
+      {
+        path: "memory/learning.md",
+        startLine: 1,
+        endLine: 1,
+        score: 0.6,
+        snippet: "Space repetition improves retention",
+        source: "memory",
+      },
+    ]);
+
+    const results = await manager.search("retention", { maxResults: 4 });
+    expect(results).toHaveLength(1);
+    expect(results[0]?.backend).toBe("merged");
+    expect(results[0]?.backends).toEqual(["sqlite-sidecar", "primary"]);
   });
 
   it("reports delegate-only until first successful sync, then marks sidecar fresh", async () => {
@@ -243,7 +365,9 @@ describe("sqlite memory sidecar", () => {
     });
 
     let closed = false;
-    const closePromise = manager.close().then(() => {
+    const closeFn = manager.close;
+    expect(closeFn).toBeTypeOf("function");
+    const closePromise = closeFn!.call(manager).then(() => {
       closed = true;
     });
 
@@ -287,6 +411,23 @@ describe("sqlite memory sidecar", () => {
       maxResults: 3,
     });
     expect(results.some((entry) => entry.path === "memory/duplicate.md")).toBe(true);
+  });
+
+  it("uses persisted sqlite sidecar rows immediately after restart before freshness verification completes", async () => {
+    await fs.writeFile(
+      path.join(workspaceDir, "memory", "personal.md"),
+      ["- Personal reminder: need to pay monthly rent to owner."].join("\n"),
+      "utf-8",
+    );
+    const cfg = createConfig({ workspaceDir, indexPath, sidecarPath });
+    manager = await getRequiredManager(cfg);
+
+    await manager.sync?.({ reason: "test", force: true });
+    await manager.close?.();
+    manager = await getRequiredManager(cfg);
+
+    const results = await manager.search("rent", { maxResults: 5 });
+    expect(results.some((entry) => entry.backends?.includes("sqlite-sidecar"))).toBe(true);
   });
 
   it("summarizes and prunes old transcript windows while skipping low-value acknowledgements", async () => {

@@ -210,6 +210,8 @@ describe("memory cli", () => {
           custom: {
             sqliteMemory: {
               enabled: true,
+              activationMode: "configured",
+              state: "ready",
               mode: "sidecar",
               dbPath: "/tmp/memory-structured.sqlite",
               degraded: false,
@@ -229,6 +231,7 @@ describe("memory cli", () => {
     await runMemoryCli(["status"]);
 
     expect(log).toHaveBeenCalledWith(expect.stringContaining("SQLite memory: ready"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("SQLite activation: configured"));
     expect(log).toHaveBeenCalledWith(expect.stringContaining("SQLite mode: sidecar"));
     expect(log).toHaveBeenCalledWith(
       expect.stringContaining("SQLite rows: sessions 2, messages 4, facts 1, tasks 1, summaries 1"),
@@ -236,6 +239,75 @@ describe("memory cli", () => {
     expect(log).toHaveBeenCalledWith(
       expect.stringContaining("SQLite latency: search 12ms"),
     );
+  });
+
+  it("reports legacy sqlite sidecar when detected but inactive", async () => {
+    const close = vi.fn(async () => {});
+    const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "memory-cli-legacy-sidecar-"));
+    const stateDir = path.join(tempRoot, ".openclaw");
+    const sidecarDir = path.join(stateDir, "memory");
+    await fs.mkdir(sidecarDir, { recursive: true });
+    await fs.writeFile(path.join(sidecarDir, "main.structured.sqlite"), "sqlite-bytes", "utf-8");
+    const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(tempRoot);
+    const previousStateDir = process.env.OPENCLAW_STATE_DIR;
+    process.env.OPENCLAW_STATE_DIR = stateDir;
+    mockManager({
+      probeVectorAvailability: vi.fn(async () => true),
+      status: () => makeMemoryStatus(),
+      close,
+    });
+
+    const log = spyRuntimeLogs();
+    try {
+      await runMemoryCli(["status"]);
+    } finally {
+      if (previousStateDir === undefined) {
+        delete process.env.OPENCLAW_STATE_DIR;
+      } else {
+        process.env.OPENCLAW_STATE_DIR = previousStateDir;
+      }
+      homedirSpy.mockRestore();
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("SQLite memory: legacy sidecar detected (inactive)"),
+    );
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("SQLite path: "),
+    );
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining("main.structured.sqlite"),
+    );
+  });
+
+  it("prints auto-detected sqlite sidecar status when active", async () => {
+    const close = vi.fn(async () => {});
+    mockManager({
+      probeVectorAvailability: vi.fn(async () => true),
+      status: () =>
+        makeMemoryStatus({
+          custom: {
+            sqliteMemory: {
+              enabled: true,
+              activationMode: "auto-detected",
+              state: "syncing",
+              mode: "sidecar",
+              dbPath: "/tmp/main.structured.sqlite",
+              degraded: false,
+              fallback: "existing",
+              fallbackState: "delegate-only",
+            },
+          },
+        }),
+      close,
+    });
+
+    const log = spyRuntimeLogs();
+    await runMemoryCli(["status"]);
+
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("SQLite memory: syncing"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("SQLite activation: auto-detected"));
   });
 
   it("resolves configured memory SecretRefs through gateway snapshot", async () => {
@@ -442,6 +514,8 @@ describe("memory cli", () => {
         endLine: 2,
         score: 0.5,
         snippet: "Hello",
+        backend: "merged",
+        backends: ["primary", "sqlite-sidecar"],
       },
     ]);
     await expectCloseFailureAfterCommand({
@@ -590,6 +664,8 @@ describe("memory cli", () => {
         endLine: 2,
         score: 0.5,
         snippet: "Hello",
+        backend: "merged",
+        backends: ["primary", "sqlite-sidecar"],
       },
     ]);
     mockManager({ search, close });
@@ -600,6 +676,7 @@ describe("memory cli", () => {
     const payload = firstLoggedJson(log);
     expect(Array.isArray(payload.results)).toBe(true);
     expect(payload.results as unknown[]).toHaveLength(1);
+    expect((payload.results as Array<Record<string, unknown>>)[0]?.backend).toBe("merged");
     expect(close).toHaveBeenCalled();
   });
 });

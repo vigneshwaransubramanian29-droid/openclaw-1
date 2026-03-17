@@ -51,6 +51,25 @@ describe("config schema regressions", () => {
     expect(res.ok).toBe(true);
   });
 
+  it("accepts memorySearch sqliteMemory sidecar config", () => {
+    const res = validateConfigObject({
+      agents: {
+        defaults: {
+          memorySearch: {
+            sqliteMemory: {
+              enabled: true,
+              mode: "sidecar",
+              fallback: "existing",
+              path: "~/.openclaw/memory/{agentId}.structured.sqlite",
+            },
+          },
+        },
+      },
+    });
+
+    expect(res.ok).toBe(true);
+  });
+
   it("accepts safe iMessage remoteHost", () => {
     const res = validateConfigObject({
       channels: {

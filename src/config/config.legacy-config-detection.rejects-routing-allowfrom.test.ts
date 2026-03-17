@@ -229,6 +229,30 @@ describe("legacy config detection", () => {
     });
     expect((res.config as { memorySearch?: unknown }).memorySearch).toBeUndefined();
   });
+
+  it("preserves sqliteMemory when migrating top-level memorySearch", async () => {
+    const res = migrateLegacyConfig({
+      memorySearch: {
+        sqliteMemory: {
+          enabled: true,
+          mode: "sidecar",
+          fallback: "existing",
+          path: "~/.openclaw/memory/{agentId}.structured.sqlite",
+        },
+      },
+    });
+
+    expect(res.changes.some((change) => change.startsWith("Moved memorySearch"))).toBe(true);
+    expect(res.config?.agents?.defaults?.memorySearch).toMatchObject({
+      sqliteMemory: {
+        enabled: true,
+        mode: "sidecar",
+        fallback: "existing",
+        path: "~/.openclaw/memory/{agentId}.structured.sqlite",
+      },
+    });
+  });
+
   it("merges top-level memorySearch into agents.defaults.memorySearch", async () => {
     const res = migrateLegacyConfig({
       memorySearch: {

@@ -46,6 +46,11 @@ type MemorySourceScan = {
   issues: string[];
 };
 
+type LegacySqliteSidecarStatus = {
+  dbPath: string;
+  bytes: number;
+};
+
 type LoadedMemoryCommandConfig = {
   config: ReturnType<typeof loadConfig>;
   diagnostics: string[];
@@ -307,6 +312,26 @@ async function summarizeQmdIndexArtifact(manager: MemoryManager): Promise<string
   return `QMD index: ${shortenHomePath(dbPath)} (${stat.size} bytes)`;
 }
 
+async function detectLegacySqliteSidecar(agentId: string): Promise<LegacySqliteSidecarStatus | null> {
+  const dbPath = path.join(resolveStateDir(process.env, os.homedir), "memory", `${agentId}.structured.sqlite`);
+  try {
+    const stat = await fs.stat(dbPath);
+    if (!stat.isFile() || stat.size <= 0) {
+      return null;
+    }
+    return {
+      dbPath,
+      bytes: stat.size,
+    };
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return null;
+    }
+    return null;
+  }
+}
+
 async function scanMemorySources(params: {
   workspaceDir: string;
   agentId: string;
@@ -343,6 +368,7 @@ export async function runMemoryStatus(opts: MemoryCommandOptions) {
     embeddingProbe?: Awaited<ReturnType<MemoryManager["probeEmbeddingAvailability"]>>;
     indexError?: string;
     scan?: MemorySourceScan;
+    legacySqliteSidecar?: LegacySqliteSidecarStatus | null;
   }> = [];
 
   for (const agentId of agentIds) {
@@ -416,7 +442,8 @@ export async function runMemoryStatus(opts: MemoryCommandOptions) {
               extraPaths: status.extraPaths,
             })
           : undefined;
-        allResults.push({ agentId, status, embeddingProbe, indexError, scan });
+        const legacySqliteSidecar = await detectLegacySqliteSidecar(agentId);
+        allResults.push({ agentId, status, embeddingProbe, indexError, scan, legacySqliteSidecar });
       },
     });
   }
@@ -436,7 +463,7 @@ export async function runMemoryStatus(opts: MemoryCommandOptions) {
   const label = (text: string) => muted(`${text}:`);
 
   for (const result of allResults) {
-    const { agentId, status, embeddingProbe, indexError, scan } = result;
+    const { agentId, status, embeddingProbe, indexError, scan, legacySqliteSidecar } = result;
     const filesIndexed = status.files ?? 0;
     const chunksIndexed = status.chunks ?? 0;
     const totalFiles = scan?.totalFiles ?? null;
@@ -559,14 +586,28 @@ export async function runMemoryStatus(opts: MemoryCommandOptions) {
     const sqliteMemory = (status.custom as { sqliteMemory?: Record<string, unknown> } | undefined)
       ?.sqliteMemory;
     if (sqliteMemory && sqliteMemory.enabled === true) {
-      const degraded = sqliteMemory.degraded === true;
+      const sqliteState =
+        typeof sqliteMemory.state === "string"
+          ? sqliteMemory.state
+          : sqliteMemory.degraded === true
+            ? "degraded"
+            : "ready";
+      const sqliteStateColor =
+        sqliteState === "ready"
+          ? theme.success
+          : sqliteState === "degraded"
+            ? theme.warn
+            : theme.info;
       lines.push(
         `${label("SQLite memory")} ${colorize(
           rich,
-          degraded ? theme.warn : theme.success,
-          degraded ? "degraded" : "ready",
+          sqliteStateColor,
+          sqliteState,
         )}`,
       );
+      if (typeof sqliteMemory.activationMode === "string") {
+        lines.push(`${label("SQLite activation")} ${info(sqliteMemory.activationMode)}`);
+      }
       if (typeof sqliteMemory.mode === "string") {
         lines.push(`${label("SQLite mode")} ${info(sqliteMemory.mode)}`);
       }
@@ -603,6 +644,10 @@ export async function runMemoryStatus(opts: MemoryCommandOptions) {
       if (typeof sqliteMemory.fallbackState === "string") {
         lines.push(`${label("SQLite fallback")} ${muted(sqliteMemory.fallbackState)}`);
       }
+    } else if (legacySqliteSidecar) {
+      lines.push(`${label("SQLite memory")} ${warn("legacy sidecar detected (inactive)")}`);
+      lines.push(`${label("SQLite path")} ${info(shortenHomePath(legacySqliteSidecar.dbPath))}`);
+      lines.push(`${label("SQLite bytes")} ${info(String(legacySqliteSidecar.bytes))}`);
     }
     if (status.fallback?.reason) {
       lines.push(muted(status.fallback.reason));
