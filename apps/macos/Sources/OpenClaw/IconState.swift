@@ -80,16 +80,16 @@ enum IconOverrideSelection: String, CaseIterable, Identifiable {
         switch self {
         case .system: "System (auto)"
         case .idle: "Idle"
-        case .mainBash: "Working main – bash"
-        case .mainRead: "Working main – read"
-        case .mainWrite: "Working main – write"
-        case .mainEdit: "Working main – edit"
-        case .mainOther: "Working main – other"
-        case .otherBash: "Working other – bash"
-        case .otherRead: "Working other – read"
-        case .otherWrite: "Working other – write"
-        case .otherEdit: "Working other – edit"
-        case .otherOther: "Working other – other"
+        case .mainBash: "Working main - bash"
+        case .mainRead: "Working main - read"
+        case .mainWrite: "Working main - write"
+        case .mainEdit: "Working main - edit"
+        case .mainOther: "Working main - other"
+        case .otherBash: "Working other - bash"
+        case .otherRead: "Working other - read"
+        case .otherWrite: "Working other - write"
+        case .otherEdit: "Working other - edit"
+        case .otherOther: "Working other - other"
         }
     }
 
