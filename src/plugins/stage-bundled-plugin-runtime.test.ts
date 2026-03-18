@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { stageBundledPluginRuntime } from "../../scripts/stage-bundled-plugin-runtime.mjs";
 import { discoverOpenClawPlugins } from "./discovery.js";
 import { loadPluginManifestRegistry } from "./manifest-registry.js";
@@ -229,8 +229,54 @@ describe("stageBundledPluginRuntime", () => {
     expect(fs.readFileSync(runtimePackagePath, "utf8")).toContain('"extensions": [');
     expect(fs.lstatSync(runtimeManifestPath).isSymbolicLink()).toBe(false);
     expect(fs.readFileSync(runtimeManifestPath, "utf8")).toBe("{}\n");
-    expect(fs.lstatSync(runtimeAssetPath).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(runtimeAssetPath).isSymbolicLink()).toBe(process.platform !== "win32");
     expect(fs.readFileSync(runtimeAssetPath, "utf8")).toBe("ok\n");
+  });
+
+  it("falls back to copying non-js plugin artifacts when Windows file symlinks are denied", () => {
+    const repoRoot = makeRepoRoot("openclaw-stage-bundled-runtime-win-fallback-");
+    const distPluginDir = path.join(repoRoot, "dist", "extensions", "acpx");
+    const runtimeAssetPath = path.join(
+      repoRoot,
+      "dist-runtime",
+      "extensions",
+      "acpx",
+      "skills",
+      "acp-router",
+      "SKILL.md",
+    );
+    fs.mkdirSync(path.dirname(path.join(distPluginDir, "skills", "acp-router", "SKILL.md")), {
+      recursive: true,
+    });
+    fs.writeFileSync(path.join(distPluginDir, "index.js"), "export default {}\n", "utf8");
+    fs.writeFileSync(path.join(distPluginDir, "package.json"), "{}\n", "utf8");
+    fs.writeFileSync(path.join(distPluginDir, "openclaw.plugin.json"), "{}\n", "utf8");
+    fs.writeFileSync(path.join(distPluginDir, "skills", "acp-router", "SKILL.md"), "# ACP\n", "utf8");
+
+    const realSymlinkSync = fs.symlinkSync.bind(fs);
+    const symlinkSyncSpy = vi.spyOn(fs, "symlinkSync").mockImplementation((target, linkPath, type) => {
+      if (
+        typeof linkPath === "string" &&
+        linkPath.endsWith(path.join("skills", "acp-router", "SKILL.md")) &&
+        type === undefined
+      ) {
+        const error = Object.assign(new Error("denied"), { code: "EPERM" });
+        throw error;
+      }
+      return realSymlinkSync(target, linkPath, type);
+    });
+    const platformSpy = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+
+    try {
+      stageBundledPluginRuntime({ repoRoot });
+    } finally {
+      symlinkSyncSpy.mockRestore();
+      platformSpy.mockRestore();
+    }
+
+    expect(fs.existsSync(runtimeAssetPath)).toBe(true);
+    expect(fs.lstatSync(runtimeAssetPath).isSymbolicLink()).toBe(false);
+    expect(fs.readFileSync(runtimeAssetPath, "utf8")).toBe("# ACP\n");
   });
 
   it("preserves package metadata needed for bundled plugin discovery from dist-runtime", () => {

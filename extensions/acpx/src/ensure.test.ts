@@ -44,7 +44,12 @@ describe("acpx ensure", () => {
     );
     fs.writeFileSync(path.join(packageRoot, "dist", "cli.js"), "#!/usr/bin/env node\n", "utf8");
     const binPath = path.join(root, "node_modules", ".bin", "acpx");
-    fs.symlinkSync(path.join(packageRoot, "dist", "cli.js"), binPath);
+    const cliPath = path.join(packageRoot, "dist", "cli.js");
+    if (process.platform === "win32") {
+      fs.copyFileSync(cliPath, binPath);
+      return cliPath;
+    }
+    fs.symlinkSync(cliPath, binPath);
     return binPath;
   }
 

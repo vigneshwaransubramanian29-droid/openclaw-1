@@ -102,13 +102,19 @@ describe("createAcpxRuntimeService", () => {
   });
 
   it("marks backend unavailable when runtime health check fails", async () => {
-    const { runtime } = createRuntimeStub(false);
+    const { runtime, probeAvailabilitySpy, isHealthySpy } = createRuntimeStub(false);
     const service = createAcpxRuntimeService({
       runtimeFactory: () => runtime,
     });
     const context = createServiceContext();
 
     await service.start(context);
+
+    await vi.waitFor(() => {
+      expect(ensureAcpxSpy).toHaveBeenCalledOnce();
+      expect(probeAvailabilitySpy).toHaveBeenCalledOnce();
+      expect(isHealthySpy).toHaveBeenCalled();
+    });
 
     expect(() => requireAcpRuntimeBackend("acpx")).toThrowError(AcpRuntimeError);
     try {
@@ -176,5 +182,6 @@ describe("createAcpxRuntimeService", () => {
 
     expect(startResult).toBe("started");
     expect(getAcpRuntimeBackend("acpx")?.runtime).toBe(runtime);
+    expect(() => requireAcpRuntimeBackend("acpx")).not.toThrow();
   });
 });

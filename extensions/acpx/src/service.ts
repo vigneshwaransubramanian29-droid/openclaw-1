@@ -37,6 +37,7 @@ export function createAcpxRuntimeService(
 ): OpenClawPluginService {
   let runtime: AcpxRuntimeLike | null = null;
   let lifecycleRevision = 0;
+  let healthState: "pending" | "ready" | "failed" = "pending";
 
   return {
     id: "acpx-runtime",
@@ -51,11 +52,23 @@ export function createAcpxRuntimeService(
         queueOwnerTtlSeconds: pluginConfig.queueOwnerTtlSeconds,
         logger: ctx.logger,
       });
+      healthState = "pending";
 
       registerAcpRuntimeBackend({
         id: ACPX_BACKEND_ID,
         runtime,
-        healthy: () => runtime?.isHealthy() ?? false,
+        healthy: () => {
+          if (!runtime) {
+            return false;
+          }
+          if (healthState === "pending") {
+            return true;
+          }
+          if (healthState === "failed") {
+            return false;
+          }
+          return runtime.isHealthy();
+        },
       });
       const expectedVersionLabel = pluginConfig.expectedVersion ?? "any";
       const installLabel = pluginConfig.allowPluginLocalInstall ? "enabled" : "disabled";
@@ -82,14 +95,17 @@ export function createAcpxRuntimeService(
           }
           await runtime?.probeAvailability();
           if (runtime?.isHealthy()) {
+            healthState = "ready";
             ctx.logger.info("acpx runtime backend ready");
           } else {
+            healthState = "failed";
             ctx.logger.warn("acpx runtime backend probe failed after local install");
           }
         } catch (err) {
           if (currentRevision !== lifecycleRevision) {
             return;
           }
+          healthState = "failed";
           ctx.logger.warn(
             `acpx runtime setup failed: ${err instanceof Error ? err.message : String(err)}`,
           );
@@ -98,6 +114,7 @@ export function createAcpxRuntimeService(
     },
     async stop(_ctx: OpenClawPluginServiceContext): Promise<void> {
       lifecycleRevision += 1;
+      healthState = "failed";
       unregisterAcpRuntimeBackend(ACPX_BACKEND_ID);
       runtime = null;
     },

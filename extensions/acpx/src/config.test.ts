@@ -11,7 +11,20 @@ import {
   resolveAcpxPluginConfig,
 } from "./config.js";
 
+const EXACT_SEMVER_VERSION_RE =
+  /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?$/;
+
 describe("acpx plugin config parsing", () => {
+  it("keeps the pinned acpx version aligned with the plugin dependency", () => {
+    const packageJson = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+      dependencies?: Record<string, string>;
+    };
+
+    expect(packageJson.dependencies?.acpx).toBe(ACPX_PINNED_VERSION);
+    expect(packageJson.dependencies?.acpx).toMatch(EXACT_SEMVER_VERSION_RE);
+    expect(ACPX_PINNED_VERSION).toMatch(EXACT_SEMVER_VERSION_RE);
+  });
+
   it("resolves source-layout plugin root from a file under src", () => {
     const pluginRoot = fs.mkdtempSync(path.join(os.tmpdir(), "acpx-root-source-"));
     try {

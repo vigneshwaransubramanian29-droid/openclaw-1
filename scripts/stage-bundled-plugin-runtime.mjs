@@ -16,6 +16,24 @@ function symlinkPath(sourcePath, targetPath, type) {
   fs.symlinkSync(relativeSymlinkTarget(sourcePath, targetPath), targetPath, type);
 }
 
+function shouldFallbackCopy(error) {
+  if (process.platform !== "win32") {
+    return false;
+  }
+  return ["EPERM", "EACCES", "UNKNOWN"].includes(error?.code ?? "");
+}
+
+function linkOrCopyFile(sourcePath, targetPath) {
+  try {
+    symlinkPath(sourcePath, targetPath);
+  } catch (error) {
+    if (!shouldFallbackCopy(error)) {
+      throw error;
+    }
+    fs.copyFileSync(sourcePath, targetPath);
+  }
+}
+
 function shouldWrapRuntimeJsFile(sourcePath) {
   return path.extname(sourcePath) === ".js";
 }
@@ -63,7 +81,14 @@ function stagePluginRuntimeOverlay(sourceDir, targetDir) {
     }
 
     if (dirent.isSymbolicLink()) {
-      fs.symlinkSync(fs.readlinkSync(sourcePath), targetPath);
+      try {
+        fs.symlinkSync(fs.readlinkSync(sourcePath), targetPath);
+      } catch (error) {
+        if (!shouldFallbackCopy(error)) {
+          throw error;
+        }
+        fs.copyFileSync(sourcePath, targetPath);
+      }
       continue;
     }
 
@@ -81,7 +106,7 @@ function stagePluginRuntimeOverlay(sourceDir, targetDir) {
       continue;
     }
 
-    symlinkPath(sourcePath, targetPath);
+    linkOrCopyFile(sourcePath, targetPath);
   }
 }
 

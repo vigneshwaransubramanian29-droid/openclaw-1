@@ -9,9 +9,15 @@ export type AcpxPermissionMode = (typeof ACPX_PERMISSION_MODES)[number];
 export const ACPX_NON_INTERACTIVE_POLICIES = ["deny", "fail"] as const;
 export type AcpxNonInteractivePermissionPolicy = (typeof ACPX_NON_INTERACTIVE_POLICIES)[number];
 
-export const ACPX_PINNED_VERSION = "0.1.16";
+const ACPX_FALLBACK_PINNED_VERSION = "0.3.0";
 export const ACPX_VERSION_ANY = "any";
 const ACPX_BIN_NAME = process.platform === "win32" ? "acpx.cmd" : "acpx";
+const EXACT_SEMVER_VERSION_RE =
+  /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?$/;
+
+function isExactSemverVersion(value: string): boolean {
+  return EXACT_SEMVER_VERSION_RE.test(value.trim());
+}
 
 function isAcpxPluginRoot(dir: string): boolean {
   return (
@@ -56,6 +62,32 @@ export function resolveAcpxPluginRoot(moduleUrl: string = import.meta.url): stri
 }
 
 export const ACPX_PLUGIN_ROOT = resolveAcpxPluginRoot();
+function readPinnedAcpxVersionFromPackage(pluginRoot: string): string | null {
+  try {
+    const packageJson = JSON.parse(fs.readFileSync(path.join(pluginRoot, "package.json"), "utf8")) as {
+      dependencies?: Record<string, string>;
+    };
+    return packageJson.dependencies?.acpx?.trim() || null;
+  } catch {
+    // Fall back to the last known-good bundled version if package metadata is unavailable.
+    return null;
+  }
+}
+
+function resolvePinnedAcpxVersion(pluginRoot: string): string {
+  const dependencyVersion = readPinnedAcpxVersionFromPackage(pluginRoot);
+  if (dependencyVersion) {
+    if (!isExactSemverVersion(dependencyVersion)) {
+      throw new Error(
+        `extensions/acpx/package.json dependency "acpx" must be an exact version, found ${dependencyVersion}`,
+      );
+    }
+    return dependencyVersion;
+  }
+  return ACPX_FALLBACK_PINNED_VERSION;
+}
+
+export const ACPX_PINNED_VERSION = resolvePinnedAcpxVersion(ACPX_PLUGIN_ROOT);
 export const ACPX_BUNDLED_BIN = path.join(ACPX_PLUGIN_ROOT, "node_modules", ".bin", ACPX_BIN_NAME);
 export function buildAcpxLocalInstallCommand(version: string = ACPX_PINNED_VERSION): string {
   return `npm install --omit=dev --no-save --package-lock=false acpx@${version}`;
