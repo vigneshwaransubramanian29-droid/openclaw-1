@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import module from "node:module";
-import { fileURLToPath } from "node:url";
 
 const MIN_NODE_MAJOR = 22;
 const MIN_NODE_MINOR = 12;
@@ -48,20 +47,6 @@ if (module.enableCompileCache && !process.env.NODE_DISABLE_COMPILE_CACHE) {
 const isModuleNotFoundError = (err) =>
   err && typeof err === "object" && "code" in err && err.code === "ERR_MODULE_NOT_FOUND";
 
-const isDirectModuleNotFoundError = (err, specifier) => {
-  if (!isModuleNotFoundError(err)) {
-    return false;
-  }
-
-  const expectedUrl = new URL(specifier, import.meta.url);
-  if ("url" in err && err.url === expectedUrl.href) {
-    return true;
-  }
-
-  const message = "message" in err && typeof err.message === "string" ? err.message : "";
-  return message.includes(fileURLToPath(expectedUrl));
-};
-
 const installProcessWarningFilter = async () => {
   // Keep bootstrap warnings consistent with the TypeScript runtime.
   for (const specifier of ["./dist/warning-filter.js", "./dist/warning-filter.mjs"]) {
@@ -72,7 +57,7 @@ const installProcessWarningFilter = async () => {
         return;
       }
     } catch (err) {
-      if (isDirectModuleNotFoundError(err, specifier)) {
+      if (isModuleNotFoundError(err)) {
         continue;
       }
       throw err;
@@ -87,8 +72,8 @@ const tryImport = async (specifier) => {
     await import(specifier);
     return true;
   } catch (err) {
-    // Only swallow direct entry misses; rethrow transitive resolution failures.
-    if (isDirectModuleNotFoundError(err, specifier)) {
+    // Only swallow missing-module errors; rethrow real runtime errors.
+    if (isModuleNotFoundError(err)) {
       return false;
     }
     throw err;

@@ -214,6 +214,10 @@
   - changed-files:
       - any-glob-to-any-file:
           - "extensions/memory-lancedb/**"
+"extensions: clawboard-memory":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "extensions/clawboard-memory/**"
 "extensions: open-prose":
   - changed-files:
       - any-glob-to-any-file:

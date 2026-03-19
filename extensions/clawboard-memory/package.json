@@ -1,0 +1,31 @@
+{
+  "name": "@openclaw/clawboard-memory",
+  "version": "2026.3.14",
+  "description": "OpenClaw plugin for Clawboard workflow orchestration and external Memory API integration",
+  "type": "module",
+  "dependencies": {
+    "@sinclair/typebox": "0.34.48",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.3.14"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "install": {
+      "npmSpec": "@openclaw/clawboard-memory",
+      "localPath": "extensions/clawboard-memory",
+      "defaultChoice": "npm"
+    },
+    "release": {
+      "publishToNpm": true
+    }
+  }
+}

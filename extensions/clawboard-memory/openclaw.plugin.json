@@ -1,0 +1,129 @@
+{
+  "id": "clawboard-memory",
+  "name": "Clawboard + Memory API",
+  "description": "Workflow-stage orchestration for Clawboard plus external durable memory for OpenClaw.",
+  "kind": "memory",
+  "skills": ["./skills"],
+  "uiHints": {
+    "clawboard.baseUrl": {
+      "label": "Clawboard Base URL",
+      "help": "Base URL for your existing Clawboard API."
+    },
+    "clawboard.auth.valueEnv": {
+      "label": "Clawboard Token Env",
+      "help": "Environment variable that holds the Clawboard API credential."
+    },
+    "memoryApi.baseUrl": {
+      "label": "Memory API Base URL",
+      "help": "Base URL for your existing durable Memory API."
+    },
+    "memoryApi.auth.valueEnv": {
+      "label": "Memory API Token Env",
+      "help": "Environment variable that holds the Memory API credential."
+    },
+    "workflow.automation.planningPoll.enabled": {
+      "label": "Planning Poll Enabled",
+      "help": "Automatically poll Planning and execute the next approved task."
+    },
+    "workflow.automation.planningPoll.intervalMs": {
+      "label": "Planning Poll Interval",
+      "help": "Polling interval in milliseconds for the Planning queue."
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "clawboard": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "baseUrl": { "type": "string" },
+          "timeoutMs": { "type": "number", "minimum": 1000 },
+          "auth": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": ["none", "bearer", "apiKey", "header"]
+              },
+              "headerName": { "type": "string" },
+              "prefix": { "type": "string" },
+              "value": { "type": "string" },
+              "valueEnv": { "type": "string" }
+            }
+          }
+        }
+      },
+      "memoryApi": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "baseUrl": { "type": "string" },
+          "timeoutMs": { "type": "number", "minimum": 1000 },
+          "defaultNamespace": { "type": "string" },
+          "auth": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": ["none", "bearer", "apiKey", "header"]
+              },
+              "headerName": { "type": "string" },
+              "prefix": { "type": "string" },
+              "value": { "type": "string" },
+              "valueEnv": { "type": "string" }
+            }
+          }
+        }
+      },
+      "workflow": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "columns": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "ideas": { "type": "string" },
+              "promptIdeas": { "type": "string" },
+              "planning": { "type": "string" },
+              "startedTask": { "type": "string" },
+              "finished": { "type": "string" }
+            }
+          },
+          "retrieval": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "maxIdeaResults": { "type": "number", "minimum": 1 },
+              "maxPromptIdeaResults": { "type": "number", "minimum": 1 },
+              "maxPlanningResults": { "type": "number", "minimum": 1 },
+              "maxMemoryResults": { "type": "number", "minimum": 1 },
+              "maxExpandedMemories": { "type": "number", "minimum": 0 },
+              "maxContextChars": { "type": "number", "minimum": 256 }
+            }
+          },
+          "automation": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "planningPoll": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": { "type": "boolean" },
+                  "intervalMs": { "type": "number", "minimum": 1000 },
+                  "agentId": { "type": "string" },
+                  "claimBeforeStart": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
