@@ -56,7 +56,10 @@ export class MemoryClient {
   async save(input: MemorySaveInput): Promise<MemoryRecord> {
     const raw = await this.http.requestJson({
       endpoint: this.settings.endpoints.save,
-      body: input,
+      body: {
+        ...input,
+        ...(this.settings.workspaceId ? { workspaceId: this.settings.workspaceId } : {}),
+      },
     });
     return normalizeMemoryRecord(raw);
   }
@@ -68,6 +71,7 @@ export class MemoryClient {
         key: params.key,
         value: params.value,
         namespace: params.namespace ?? this.settings.defaultNamespace,
+        ...(this.settings.workspaceId ? { workspaceId: this.settings.workspaceId } : {}),
       },
     });
   }

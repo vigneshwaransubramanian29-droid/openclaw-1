@@ -63,6 +63,7 @@
           "baseUrl": { "type": "string" },
           "timeoutMs": { "type": "number", "minimum": 1000 },
           "defaultNamespace": { "type": "string" },
+          "workspaceId": { "type": "string" },
           "auth": {
             "type": "object",
             "additionalProperties": false,

@@ -150,6 +150,7 @@ const PluginSettingsInputSchema = z
       .optional(),
     memoryApi: ServiceConfigInputSchema.extend({
       defaultNamespace: z.string().optional(),
+      workspaceId: z.string().optional(),
       endpoints: MemoryEndpointsInputSchema.optional(),
     })
       .strict()
@@ -301,6 +302,7 @@ export const ClawboardMemoryPluginSettingsSchema = z
     }).strict(),
     memoryApi: ServiceConfigSchema.extend({
       defaultNamespace: z.string().optional(),
+      workspaceId: z.string().optional(),
       endpoints: MemoryEndpointsSchema,
     }).strict(),
     workflow: WorkflowSchema,
@@ -634,6 +636,7 @@ const CONFIG_JSON_SCHEMA = {
       properties: {
         baseUrl: { type: "string" },
         defaultNamespace: { type: "string" },
+        workspaceId: { type: "string" },
         timeoutMs: { type: "number", minimum: 1000 },
         retry: {
           type: "object",
@@ -782,6 +785,7 @@ export function resolvePluginSettings(rawConfig: unknown): ClawboardMemoryPlugin
     memoryApi: {
       baseUrl: parsed.memoryApi?.baseUrl,
       defaultNamespace: parsed.memoryApi?.defaultNamespace,
+      workspaceId: parsed.memoryApi?.workspaceId,
       timeoutMs: parsed.memoryApi?.timeoutMs ?? 15_000,
       retry: resolveRetry(parsed.memoryApi?.retry),
       auth: resolveAuth(parsed.memoryApi?.auth),
