@@ -53,6 +53,100 @@
               "value": { "type": "string" },
               "valueEnv": { "type": "string" }
             }
+          },
+          "endpoints": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "listItems": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "path": { "type": "string" },
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] }
+                }
+              },
+              "getItem": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "path": { "type": "string" },
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] }
+                }
+              },
+              "createIdea": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "path": { "type": "string" },
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] }
+                }
+              },
+              "savePromptIdea": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "path": { "type": "string" },
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] }
+                }
+              },
+              "moveItem": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "path": { "type": "string" },
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] }
+                }
+              },
+              "addNote": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "path": { "type": "string" },
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] }
+                }
+              },
+              "nextPlanningTask": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "path": { "type": "string" },
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] }
+                }
+              },
+              "startTask": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "path": { "type": "string" },
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] }
+                }
+              },
+              "updateProgress": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "path": { "type": "string" },
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] }
+                }
+              },
+              "finishTask": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "path": { "type": "string" },
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] }
+                }
+              },
+              "claimTask": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "path": { "type": "string" },
+                  "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"] }
+                }
+              }
+            }
           }
         }
       },
