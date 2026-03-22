@@ -32,6 +32,8 @@
   "process-runtime",
   "acp-runtime",
   "acpx",
+  "windows-spawn",
+  "provider-env-vars",
   "telegram",
   "telegram-core",
   "discord",

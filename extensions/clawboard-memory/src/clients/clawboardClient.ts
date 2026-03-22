@@ -200,17 +200,41 @@ export function normalizeItem(value: unknown): ClawboardItem {
     throw new Error("Clawboard API returned an invalid item payload");
   }
 
-  const normalizedNotes = Array.isArray(candidate.notes)
-    ? candidate.notes.map((entry) => {
-        if (typeof entry === "string") {
-          return { text: entry };
-        }
-        if (entry && typeof entry === "object") {
-          return entry;
-        }
-        return { text: String(entry ?? "") };
-      })
-    : [];
+  // Map notes: prefer candidate.notes, fall back to ClawBoard's comments array
+  const rawNotes = Array.isArray(candidate.notes)
+    ? candidate.notes
+    : Array.isArray(candidate.comments)
+      ? candidate.comments
+      : [];
+  const normalizedNotes = rawNotes.map((entry: unknown) => {
+    if (typeof entry === "string") {
+      return { text: entry };
+    }
+    if (entry && typeof entry === "object") {
+      const e = entry as Record<string, unknown>;
+      // ClawBoard comment shape: { body, authorUserName, authorAgentName, createdAt }
+      return {
+        id: typeof e.id === "string" ? e.id : undefined,
+        text: typeof e.text === "string" ? e.text : typeof e.body === "string" ? e.body : String(e.body ?? ""),
+        author: typeof e.author === "string" ? e.author : typeof e.authorUserName === "string" ? e.authorUserName : typeof e.authorAgentName === "string" ? e.authorAgentName : undefined,
+        createdAt: typeof e.createdAt === "string" ? e.createdAt : undefined,
+      };
+    }
+    return { text: String(entry ?? "") };
+  });
+
+  // Map tags: ClawBoard returns [{id, name, color}] — extract name strings
+  const rawTags = Array.isArray(candidate.tags) ? candidate.tags : [];
+  const tagStrings = rawTags
+    .map((t: unknown) => {
+      if (typeof t === "string") return t;
+      if (t && typeof t === "object") {
+        const to = t as Record<string, unknown>;
+        return typeof to.name === "string" ? to.name : null;
+      }
+      return null;
+    })
+    .filter((t): t is string => typeof t === "string" && t.length > 0);
 
   const parsed = ClawboardItemSchema.safeParse({
     ...candidate,
@@ -219,7 +243,7 @@ export function normalizeItem(value: unknown): ClawboardItem {
       typeof candidate.description === "string"
         ? candidate.description
         : String(candidate.description ?? ""),
-    tags: coerceStringArray(candidate.tags),
+    tags: tagStrings,
     notes: normalizedNotes,
     artifactLinks: coerceStringArray(candidate.artifactLinks),
   });

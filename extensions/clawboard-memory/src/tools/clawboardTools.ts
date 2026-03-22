@@ -459,11 +459,13 @@ function normalizeColumn(value: string): ClawboardLogicalColumn {
       return "promptIdeas";
     case "planning":
       return "planning";
+    case "started":
     case "startedtask":
     case "started-task":
     case "started task":
       return "startedTask";
     case "finished":
+    case "ready":   // ClawBoard has a Ready column — treat as finished for planning flow
       return "finished";
     default:
       throw new Error(`Unsupported targetColumn: ${value}`);

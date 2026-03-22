@@ -169,6 +169,14 @@
       "types": "./dist/plugin-sdk/acpx.d.ts",
       "default": "./dist/plugin-sdk/acpx.js"
     },
+    "./plugin-sdk/windows-spawn": {
+      "types": "./dist/plugin-sdk/windows-spawn.d.ts",
+      "default": "./dist/plugin-sdk/windows-spawn.js"
+    },
+    "./plugin-sdk/provider-env-vars": {
+      "types": "./dist/plugin-sdk/provider-env-vars.d.ts",
+      "default": "./dist/plugin-sdk/provider-env-vars.js"
+    },
     "./plugin-sdk/telegram": {
       "types": "./dist/plugin-sdk/telegram.d.ts",
       "default": "./dist/plugin-sdk/telegram.js"

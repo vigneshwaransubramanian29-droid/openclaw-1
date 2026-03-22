@@ -39,6 +39,7 @@ export class MemoryClient {
         query: params.query,
         namespace: params.namespace ?? this.settings.defaultNamespace,
         topK: params.topK,
+        ...(this.settings.workspaceId ? { workspaceId: this.settings.workspaceId } : {}),
       },
     });
     const hits = extractArrayPayload(raw, ["results", "memories", "data"]);
@@ -57,7 +58,14 @@ export class MemoryClient {
     const raw = await this.http.requestJson({
       endpoint: this.settings.endpoints.save,
       body: {
-        ...input,
+        name: input.title,
+        description: input.summary,
+        ...(input.facts && input.facts.length > 0
+          ? { content: input.facts.join("\n") }
+          : {}),
+        type: input.type,
+        tags: input.tags,
+        importance: input.importance,
         ...(this.settings.workspaceId ? { workspaceId: this.settings.workspaceId } : {}),
       },
     });
@@ -68,9 +76,9 @@ export class MemoryClient {
     return await this.http.requestJson({
       endpoint: this.settings.endpoints.upsertFact,
       body: {
-        key: params.key,
-        value: params.value,
-        namespace: params.namespace ?? this.settings.defaultNamespace,
+        name: params.key,
+        content: params.value,
+        type: "fact",
         ...(this.settings.workspaceId ? { workspaceId: this.settings.workspaceId } : {}),
       },
     });
@@ -99,17 +107,21 @@ function normalizeSearchHit(value: unknown): MemorySearchHit | null {
     summary:
       typeof candidate.summary === "string"
         ? candidate.summary
-        : typeof candidate.snippet === "string"
-          ? candidate.snippet
-          : typeof candidate.text === "string"
-            ? candidate.text
-            : "",
+        : typeof candidate.description === "string"
+          ? candidate.description
+          : typeof candidate.snippet === "string"
+            ? candidate.snippet
+            : typeof candidate.text === "string"
+              ? candidate.text
+              : "",
     snippet:
       typeof candidate.snippet === "string"
         ? candidate.snippet
-        : typeof candidate.summary === "string"
-          ? candidate.summary
-          : undefined,
+        : typeof candidate.description === "string"
+          ? candidate.description
+          : typeof candidate.summary === "string"
+            ? candidate.summary
+            : undefined,
     tags: coerceStringArray(candidate.tags),
   });
   return parsed.success ? parsed.data : null;
@@ -131,15 +143,21 @@ function normalizeMemoryRecord(value: unknown): MemoryRecord {
     title:
       typeof candidate.title === "string"
         ? candidate.title
-        : typeof candidate.summary === "string"
-          ? candidate.summary.slice(0, 80)
-          : "memory",
+        : typeof candidate.name === "string"
+          ? candidate.name
+          : typeof candidate.summary === "string"
+            ? candidate.summary.slice(0, 80)
+            : typeof candidate.description === "string"
+              ? candidate.description.slice(0, 80)
+              : "memory",
     summary:
       typeof candidate.summary === "string"
         ? candidate.summary
-        : typeof candidate.text === "string"
-          ? candidate.text
-          : "",
+        : typeof candidate.description === "string"
+          ? candidate.description
+          : typeof candidate.text === "string"
+            ? candidate.text
+            : "",
     tags: coerceStringArray(candidate.tags),
     facts: coerceStringArray(candidate.facts),
   });
